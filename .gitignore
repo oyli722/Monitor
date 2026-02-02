@@ -2,6 +2,16 @@
 .idea/
 .vscode/
 *.iml
+*.ipr
+*.iws
+.claude/
+
+# IDE local settings
+*.local
+settings.local.json
+.settings.local.json
+
+# Claude Code
 .claude/
 
 # Java
@@ -32,3 +42,7 @@ Thumbs.db
 # Sensitive config (be careful with these)
 # application.yaml
 # application-*.yaml
+
+# Project specific
+agent-config.yaml
+CLAUDE.md
