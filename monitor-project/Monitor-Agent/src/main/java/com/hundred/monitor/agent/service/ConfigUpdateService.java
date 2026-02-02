@@ -2,7 +2,7 @@ package com.hundred.monitor.agent.service;
 
 import com.hundred.monitor.agent.config.ConfigLoader;
 import com.hundred.monitor.agent.model.entity.AgentConfig;
-import com.hundred.monitor.agent.model.response.CommonResponse;
+import com.hundred.monitor.commonlibrary.response.BaseResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +23,7 @@ public class ConfigUpdateService {
     /**
      * 更新配置
      */
-    public CommonResponse updateConfig(AgentConfig configUpdates) {
+    public BaseResponse updateConfig(AgentConfig configUpdates) {
         try {
             // 读取当前配置
             AgentConfig currentConfig = configLoader.getConfig();
@@ -35,11 +35,11 @@ public class ConfigUpdateService {
             configLoader.save(mergedConfig);
 
             log.info("配置更新成功");
-            return CommonResponse.success("配置已更新");
+            return BaseResponse.success("配置已更新");
 
         } catch (Exception e) {
             log.error("配置更新失败: {}", e.getMessage(), e);
-            return CommonResponse.error("配置更新失败: " + e.getMessage());
+            return BaseResponse.error("配置更新失败: " + e.getMessage());
         }
     }
 

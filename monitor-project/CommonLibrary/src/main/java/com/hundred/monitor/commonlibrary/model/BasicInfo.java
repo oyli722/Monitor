@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * 基本数据模型
- * 包含主机硬件信息（不变或极少变）
+ * Agent采集的主机硬件信息（不变或极少变化）
  */
 @Data
 public class BasicInfo {

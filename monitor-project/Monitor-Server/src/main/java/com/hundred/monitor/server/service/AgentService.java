@@ -2,7 +2,8 @@ package com.hundred.monitor.server.service;
 
 import com.hundred.monitor.server.model.entity.Agent;
 import com.hundred.monitor.server.model.request.CustomerRegisterRequest;
-import com.hundred.monitor.server.model.response.AgentRegisterResponse;
+import com.hundred.monitor.commonlibrary.model.BasicInfo;
+import com.hundred.monitor.commonlibrary.response.RegisterResponse;
 
 /**
  * Agent服务接口
@@ -15,7 +16,7 @@ public interface AgentService {
      * @param request 注册请求
      * @return 注册响应
      */
-    AgentRegisterResponse register(CustomerRegisterRequest request);
+    RegisterResponse register(CustomerRegisterRequest request);
 
     /**
      * 更新Agent基本数据
@@ -23,7 +24,7 @@ public interface AgentService {
      * @param agentId Agent ID
      * @param basicInfo 基本数据
      */
-    void updateBasicInfo(String agentId, CustomerRegisterRequest.AgentBasicInfo basicInfo);
+    void updateBasicInfo(String agentId, BasicInfo basicInfo);
 
     /**
      * 根据ID获取Agent

@@ -1,15 +1,14 @@
 package com.hundred.monitor.server.model.response;
 
-import com.hundred.monitor.commonlibrary.response.CommonResponse;
 import com.hundred.monitor.server.model.entity.User;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 
-@EqualsAndHashCode(callSuper = true)
 @Data
-public class ForgetPasswordResponse extends CommonResponse {
+public class ForgetPasswordResponse {
+    private Boolean success;
+    private String message;
     private String token;
-    User user;
+    private User user;
 
     public static ForgetPasswordResponse success(User user, String token) {
         ForgetPasswordResponse response = new ForgetPasswordResponse();

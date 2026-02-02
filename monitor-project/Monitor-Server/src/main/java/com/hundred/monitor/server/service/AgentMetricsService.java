@@ -1,6 +1,6 @@
 package com.hundred.monitor.server.service;
 
-import com.hundred.monitor.server.model.request.MetricsReportRequest;
+import com.hundred.monitor.commonlibrary.request.MetricsReportRequest;
 
 /**
  * Agent监控数据服务接口

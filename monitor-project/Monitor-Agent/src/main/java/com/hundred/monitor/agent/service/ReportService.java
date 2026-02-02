@@ -2,11 +2,11 @@ package com.hundred.monitor.agent.service;
 
 import com.hundred.monitor.agent.config.ConfigLoader;
 import com.hundred.monitor.agent.model.entity.AgentConfig;
-import com.hundred.monitor.agent.model.entity.BasicInfo;
-import com.hundred.monitor.agent.model.entity.Metrics;
-import com.hundred.monitor.agent.model.request.BasicReportRequest;
-import com.hundred.monitor.agent.model.request.MetricsReportRequest;
-import com.hundred.monitor.agent.model.response.CommonResponse;
+import com.hundred.monitor.commonlibrary.model.BasicInfo;
+import com.hundred.monitor.commonlibrary.model.Metrics;
+import com.hundred.monitor.commonlibrary.request.BasicReportRequest;
+import com.hundred.monitor.commonlibrary.request.MetricsReportRequest;
+import com.hundred.monitor.commonlibrary.response.BaseResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -125,10 +125,10 @@ public class ReportService {
             String url = buildUrl(serverUrl, endpoint);
 
             // 发送请求
-            ResponseEntity<CommonResponse> response = restTemplate.postForEntity(url, request, CommonResponse.class);
+            ResponseEntity<BaseResponse> response = restTemplate.postForEntity(url, request, BaseResponse.class);
 
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null
-                    && response.getBody().getSuccess()) {
+                    && response.getBody().isSuccess()) {
                 log.info("{}上报成功", reportType);
             } else {
                 log.warn("{}上报失败，响应状态: {}", reportType, response.getStatusCode());

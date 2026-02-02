@@ -1,10 +1,10 @@
 package com.hundred.monitor.commonlibrary.request;
 
-import com.hundred.monitor.commonlibrary.model.*;
+import com.hundred.monitor.commonlibrary.model.BasicInfo;
 import lombok.Data;
 
 /**
- * 客户端注册请求
+ * Agent注册请求
  */
 @Data
 public class RegisterRequest {
@@ -20,7 +20,7 @@ public class RegisterRequest {
     private String ip;
 
     /**
-     * 基本运行数据
+     * 基本硬件信息
      */
     private BasicInfo basicInfo;
 }

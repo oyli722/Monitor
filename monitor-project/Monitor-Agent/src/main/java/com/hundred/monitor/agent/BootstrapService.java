@@ -1,6 +1,6 @@
 package com.hundred.monitor.agent;
 
-import com.hundred.monitor.agent.model.response.RegisterResponse;
+import com.hundred.monitor.commonlibrary.response.RegisterResponse;
 import com.hundred.monitor.agent.service.RegisterService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

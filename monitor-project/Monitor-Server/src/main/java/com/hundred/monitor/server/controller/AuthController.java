@@ -4,7 +4,7 @@ import com.hundred.monitor.server.model.request.EmailCodeRequest;
 import com.hundred.monitor.server.model.request.ForgetPasswordRequest;
 import com.hundred.monitor.server.model.request.LoginRequest;
 import com.hundred.monitor.server.model.request.RegisterRequest;
-import com.hundred.monitor.server.model.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.response.BaseResponse;
 import com.hundred.monitor.server.model.response.ForgetPasswordResponse;
 import com.hundred.monitor.server.model.response.LoginResponse;
 import com.hundred.monitor.server.model.response.RegisterResponse;

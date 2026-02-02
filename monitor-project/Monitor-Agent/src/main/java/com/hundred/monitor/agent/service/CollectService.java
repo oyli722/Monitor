@@ -1,8 +1,8 @@
 package com.hundred.monitor.agent.service;
 
-import com.hundred.monitor.agent.model.entity.BasicInfo;
-import com.hundred.monitor.agent.model.entity.Metrics;
-import com.hundred.monitor.agent.model.entity.Metrics.DiskUsageInfo;
+import com.hundred.monitor.commonlibrary.model.BasicInfo;
+import com.hundred.monitor.commonlibrary.model.Metrics;
+import com.hundred.monitor.commonlibrary.model.Metrics.DiskUsageInfo;
 import oshi.SystemInfo;
 import oshi.hardware.*;
 import oshi.software.os.OSFileStore;
