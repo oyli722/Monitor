@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: Monitor-Agent
+
+# 客户端HTTP服务端口
+# 用于接收服务端下发的命令、配置更新等请求
+server:
+  port: 8081
+config:
+  path: C:\Users\hundred\Desktop\Java学习\Monitor\Monitor\monitor-project\Monitor-Agent\src\main\resources\agent-config.yaml
+
+# 服务端地址配置（可在此处指定默认服务端，用于动态URL构建）
+# server:
+#   url: "http://localhost:8081"

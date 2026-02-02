@@ -1,0 +1,33 @@
+:root {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+
+  /* 颜色系统 */
+  --color-primary: #2563eb;
+  --color-secondary: #7c3aed;
+  --color-success: #67C23A;
+  --color-warning: #E6A23C;
+  --color-danger: #F56C6C;
+
+  /* 背景色 */
+  --bg-primary: #ffffff;
+  --bg-secondary: #E5EAF3;
+  --bg-tertiary: #909399;
+
+  /* 文字色 */
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-tertiary: #64748b;
+
+  /* 边框 */
+  --border-color: #e2e8f0;
+  --border-radius: 8px;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+
+  /* 间距 */
+  --spacing-unit: 0.25rem;
+}

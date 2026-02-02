@@ -1,0 +1,56 @@
+
+
+
+spring:
+  application:
+    name: Monitor-Server
+  rabbitmq:
+    addresses: localhost
+    port: 5672
+    username: admin
+    password: admin
+    virtual-host: /
+
+
+  # datasource configu (MySQL)
+  datasource:
+    url: jdbc:mysql://localhost:3306/monitor
+    username: root
+    password: 100000100ce.
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # send email
+  mail:
+    host: smtp.163.com
+    username: 19862310527@163.com
+    password: PEqFedXfksTzqzU5
+
+  web:
+    verify:
+      mail-limit: 60
+    flow:
+      period: 5
+      limit: 100
+      block: 30
+
+  data:
+    redis:
+      host: 127.0.0.1
+      password: ""  # no password is ""
+      database: 0  # default use 0
+      timeout: 5000ms  # connect timeout
+      port: 6379
+
+# MyBatis config (if used)
+#mybatis:
+#  mapper-locations: classpath:mapper/*.xml
+#  type-aliases-package: com.example.entity
+#  configuration:
+#    map-underscore-to-camel-case: true
+#    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+jwt:
+  secret: monitor-server-jwt-secret-key-for-hmac-sha256-algorithm-at-least-32-bytes
+  expiration: 86400000
+server:
+  port: 8080
