@@ -1,0 +1,34 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+.claude/
+
+# Java
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# Node.js / Frontend
+node_modules/
+dist/
+*.local
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sensitive config (be careful with these)
+# application.yaml
+# application-*.yaml

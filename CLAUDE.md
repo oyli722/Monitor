@@ -4,152 +4,169 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Server Operations Monitoring System** (服务器运维监控系统) with a client-server architecture for centralized server monitoring, web-based SSH terminal access, and AI-assisted operations automation.
+A distributed monitoring system (服务运维监控系统) with client-server architecture. The system monitors remote hosts by deploying agents that collect system metrics and report them to a central server, which provides a web-based dashboard for visualization and management with integrated SSH terminal and AI assistant.
 
-### Architecture Components
+## Architecture
 
-1. **Monitor-Agent** (`monitor-project/Monitor-Agent/`) - Agent deployed on monitored hosts
-2. **Monitor-Server** (`monitor-project/Monitor-Server/`) - Central server for data processing and API services
-3. **Monitor-Web** (`monitor-project/Monitor-Web/`) - Vue 3 frontend console
-4. **CommonLibrary** (`monitor-project/CommonLibrary/`) - Shared DTOs and models
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Web Browser                              │
+│                    (Monitor-Web: Vue 3)                         │
+│                  Port: 5173 (dev), 8080 (prod)                  │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │ HTTP/WebSocket
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│                      Monitor-Server                              │
+│                   (Spring Boot 3.5.10)                          │
+│                      Port: 8080                                  │
+│  Controllers: Auth, Agent, Monitor, Ssh, Health                 │
+│  Services: AuthService, AgentService, MonitorService, SshService │
+│  Data: MySQL (MyBatis Plus), Redis, RabbitMQ                    │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │ HTTP (Agent registration/reporting)
+                               │
+         ┌─────────────────────┼─────────────────────┐
+         │                     │                     │
+┌────────▼─────────┐  ┌───────▼────────┐  ┌────────▼─────────┐
+│  Monitor-Agent   │  │ Monitor-Agent  │  │  Monitor-Agent   │
+│   (Host 1)       │  │   (Host 2)     │  │   (Host 3)       │
+│  Port: 8081      │  │  Port: 8081    │  │  Port: 8081      │
+└──────────────────┘  └────────────────┘  └──────────────────┘
+```
 
-## Build & Run Commands
+## Module Structure
 
-### Server (Monitor-Server)
+- **CommonLibrary/** - Shared models and DTOs (BasicInfo, Metrics, registration requests/responses)
+- **Monitor-Agent/** - Agent for monitored hosts, collects metrics via OSHI library
+- **Monitor-Server/** - Central server with REST API, SSH WebSocket proxy, authentication
+- **Monitor-Web/** - Vue 3 + TypeScript web dashboard with Element Plus and ECharts
+
+## Common Development Commands
+
+### Java Modules (Maven)
+
 ```bash
-cd monitor-project/Monitor-Server
+# Build a module (build CommonLibrary first as it's a dependency)
+cd CommonLibrary && mvn clean install
+cd Monitor-Agent && mvn clean install
+cd Monitor-Server && mvn clean install
+
+# Run tests
+mvn test
+
+# Run Spring Boot application
 mvn spring-boot:run
 ```
-- Runs on port 8080 by default
-- Requires: MySQL (localhost:3306), Redis (localhost:6379), RabbitMQ (localhost:5672)
-- Build: `mvn clean package`
 
-### Agent (Monitor-Agent)
-```bash
-cd monitor-project/Monitor-Agent
-mvn spring-boot:run
-```
-- Runs on port 8081 by default
-- Configuration: `src/main/resources/agent-config.yaml`
-- Build: `mvn clean package`
+### Web Module (npm/Vite)
 
-### Web Frontend (Monitor-Web)
 ```bash
-cd monitor-project/Monitor-Web
-npm install          # First time setup
-npm run dev          # Development server with hot-reload
-npm run build        # Production build
-npm run lint         # ESLint with auto-fix
+cd Monitor-Web
+
+# Install dependencies
+npm install
+
+# Development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Type checking
+npm run type-check
+
+# Lint
+npm run lint
+
+# Unit tests (Vitest)
+npm run test:unit
+
+# E2E tests (Playwright)
+npm run test:e2e
+npx playwright install  # First time only
 ```
-- Dev server: Vite (default port varies)
-- Node engine: ^20.19.0 || >=22.12.0
+
+## Startup Sequence
+
+1. Start MySQL (port 3306) - Create database using `Monitor-Server/src/main/resources/sql/init.sql`
+2. Start Redis (port 6379)
+3. Start RabbitMQ (port 5672)
+4. Build CommonLibrary: `cd CommonLibrary && mvn clean install`
+5. Start Monitor-Server: `cd Monitor-Server && mvn spring-boot:run`
+6. Start Monitor-Agent: `cd Monitor-Agent && mvn spring-boot:run`
+7. Start Monitor-Web: `cd Monitor-Web && npm run dev`
+
+## Key Architecture Patterns
+
+### Agent-Server Communication
+- Agents register with server on startup via `POST /api/v1/customer/register`
+- Dual-frequency reporting:
+  - Basic data (hardware info via `BasicInfo`): every 10 minutes
+  - Metrics (CPU, memory, disk, network via `Metrics`): every 15 seconds
+- Server can push config updates to agents via `POST /api/v1/agent/config`
+
+### Authentication
+- JWT-based stateless authentication (Spring Security + JwtTokenProvider)
+- Role-based access control (admin/user)
+- Email verification for registration/password reset
+
+### SSH Terminal Proxy
+- Browser connects to Server via WebSocket (`WS /ws/ssh/terminal/{sessionId}`)
+- Server maintains SSH session to Agent host via JSch
+- Terminal I/O relayed through WebSocket
+- Credentials stored encrypted in `ssh_credential` table
+
+### Data Flow
+```
+Agent (OSHI) → CollectService → ReportService → Server API → MySQL
+                                                            ↓
+   Browser ← REST API ← MonitorController ← Database Query
+```
+
+## Database Schema
+
+Located in `Monitor-Server/src/main/resources/sql/init.sql`
+
+- **user** - User accounts (user_id, username, email, password, role)
+- **agent** - Registered agents (agent_id, hostname, ip, cpu_model, gpu_info, network_interfaces)
+- **agent_metrics** - Time-series metrics (cpu_percent, memory_percent, disk_usages, network rates)
+- **ssh_credential** - Saved SSH credentials (encrypted)
+
+## Configuration Files
+
+- **Monitor-Agent/src/main/resources/agent-config.yaml** - Agent registration & reporting intervals
+- **Monitor-Server/src/main/resources/application.yaml** - Server config (MySQL, Redis, RabbitMQ, JWT, email)
+- **Monitor-Web/.env.development** - Dev environment (API: http://localhost:8080/api)
+
+## Key API Endpoints
+
+### Authentication
+- `POST /api/auth/login` - User login
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/reset-password` - Reset password
+
+### Agent (Server-side)
+- `POST /api/v1/customer/register` - Agent registration
+- `POST /api/v1/agent/basic` - Basic data report
+- `POST /api/v1/agent/metrics` - Metrics report
+
+### Monitor
+- `GET /api/monitor/getMonitorList` - Get all monitored hosts
+- `GET /api/monitor/stats` - Get system statistics
+- `GET /api/monitor/{agentId}/metrics/latest` - Get latest metrics
+
+### SSH
+- `GET /api/v1/ssh/credential/{agentId}` - Get SSH credential
+- `POST /api/v1/ssh/connect` - Establish SSH connection
+- `WS /ws/ssh/terminal/{sessionId}` - SSH terminal WebSocket
 
 ## Technology Stack
 
-### Backend
-- **Java 17** + **Spring Boot 3.5.10**
-- **OSHI 6.x** (Agent) - Cross-platform hardware monitoring
-- **MyBatis-Plus 3.5.15** - Database ORM
-- **InfluxDB Java Client 6.6.0** - Time-series data storage
-- **JSch 0.1.55** - SSH connections
-- **WebSocket** - Real-time SSH terminal streaming
-- **Spring Security + JWT** - Authentication/authorization
-- **RabbitMQ** - Message queue for async tasks (email sending)
-- **OpenFeign** (Agent) - HTTP client for server communication
+**Backend:** Java 17, Spring Boot 3.5.10, Spring Security + JWT, MyBatis Plus, MySQL, Redis, RabbitMQ, OSHI (system monitoring), JSch (SSH), Resilience4j
 
-### Frontend
-- **Vue 3** with Composition API
-- **TypeScript**
-- **Vite** - Build tool
-- **Element Plus** - UI component library
-- **ECharts** - Data visualization
-- **Pinia** - State management
-- **Vue Router** - Routing
-- **xterm.js** - Web-based SSH terminal
+**Frontend:** Vue 3 (Composition API), TypeScript, Vite, Element Plus, ECharts, xterm.js, Pinia
 
-## Architecture & Data Flow
+**Build:** Maven (Java), npm/Vite (Web)
 
-### Agent Registration & Reporting Flow
-1. Agent startup checks `agent-config.yaml` for existing `agent.id`
-2. If not registered, Agent calls `POST /api/v1/customer/register` with hostname, IP, and basic hardware info
-3. Server responds with `agent_id`, `agent_name`, and `auth_token`
-4. Agent saves these to local config
-
-### Dual-Frequency Data Reporting
-- **Basic Data** (every 10 min): Static hardware info via `POST /api/v1/agent/basic`
-- **Metrics Data** (every 15 sec): CPU/memory/disk/network via `POST /api/v1/agent/metrics`
-- Use `@Scheduled` annotations in `ReportService.java`
-
-### SSH WebSocket Architecture
-- Frontend connects to `WS /api/v1/ssh/terminal/{sessionId}`
-- `SshWebSocketHandler` bridges WebSocket and SSH session via JSch
-- `SshSessionManager` manages active SSH connections
-- Data flows: WebSocket -> SSH shell input; SSH output -> WebSocket
-
-### Authentication Flow
-1. User login via `POST /api/v1/auth/login` → JWT token
-2. Frontend stores token and includes in `Authorization: Bearer` header
-3. `JwtAuthenticationFilter` validates token on protected endpoints
-4. Spring Security handles role-based access control
-
-## Key Configuration Files
-
-- **Server**: `monitor-project/Monitor-Server/src/main/resources/application.yaml`
-  - Database, Redis, RabbitMQ, mail settings, JWT secret
-- **Agent**: `monitor-project/Monitor-Agent/src/main/resources/agent-config.yaml`
-  - Server endpoints, agent credentials, reporting intervals
-- **Agent application**: `monitor-project/Monitor-Agent/src/main/resources/application.yaml`
-  - Agent HTTP port, config file path
-
-## Important API Endpoints
-
-### Agent APIs
-- `POST /api/v1/customer/register` - Agent registration
-- `POST /api/v1/agent/basic` - Basic hardware data report
-- `POST /api/v1/agent/metrics` - Runtime metrics report
-- `POST /api/v1/agent/config` - Config updates from server
-
-### Auth APIs
-- `POST /api/v1/auth/login` - User login
-- `POST /api/v1/auth/register` - User registration
-- `POST /api/v1/auth/forgot-password` - Password reset request
-
-### Monitor APIs
-- `GET /api/v1/monitor/agents` - List all agents
-- `GET /api/v1/monitor/agents/{agentId}/basic` - Agent basic info
-- `GET /api/v1/monitor/agents/{agentId}/metrics` - Latest metrics
-- `GET /api/v1/monitor/agents/{agentId}/metrics/history` - Historical metrics
-
-### SSH APIs
-- `POST /api/v1/ssh/connect` - Establish SSH connection (returns sessionId)
-- `POST /api/v1/ssh/disconnect` - Close SSH connection
-- `POST /api/v1/ssh/command` - Send command to SSH session
-- `POST /api/v1/ssh/credential` - Save SSH credentials
-- `GET /api/v1/ssh/credential/{agentId}` - Get saved SSH credentials
-- `WS /api/v1/ssh/terminal/{sessionId}` - WebSocket for interactive terminal
-
-## Database Schema (Key Tables)
-
-- **agent** - Registered agents with basic hardware info
-- **agent_metrics** - Time-series metrics (also stored in InfluxDB)
-- **ssh_credential** - Encrypted SSH credentials for agents
-- **user** - User accounts
-
-## Frontend Structure
-
-- `/src/views/auth/` - Login, register, forgot password
-- `/src/views/dashboard/` - Main dashboard with host overview
-- `/src/views/host/` - Host monitoring with metrics charts
-- `/src/views/ai/` - AI assistant for natural language operations
-- `/src/views/admin/` - User management, system settings
-- `/src/components/` - Reusable components (layout, monitors, auth)
-
-## Development Notes
-
-- The **CommonLibrary** module contains shared request/response DTOs used by both Agent and Server
-- Agent uses **RestTemplate** for HTTP calls (configured in `RestTemplateConfig.java`)
-- Server uses **InfluxDB** for time-series metrics storage; MySQL for agent/user metadata
-- SSH terminal uses **xterm.js** on frontend with **WebSocket** proxying to JSch SSH sessions
-- Credentials are stored in `ssh_credential` table (encryption is TODO - see `SshServiceImpl.java:169`)
-- Agent registration is one-time; credentials persist in `agent-config.yaml`
-- Server includes flow limiting and email verification for auth (see `FlowUtils.java`, `MailQueueListener.java`)
+**Testing:** JUnit + Spring Boot Test, Vitest, Playwright
