@@ -1,10 +1,10 @@
 package com.hundred.monitor.server.controller;
 
-import com.hundred.monitor.server.model.request.BasicReportRequest;
+import com.hundred.monitor.commonlibrary.request.BasicReportRequest;
+import com.hundred.monitor.commonlibrary.request.MetricsReportRequest;
+import com.hundred.monitor.commonlibrary.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.response.RegisterResponse;
 import com.hundred.monitor.server.model.request.CustomerRegisterRequest;
-import com.hundred.monitor.server.model.request.MetricsReportRequest;
-import com.hundred.monitor.server.model.response.AgentRegisterResponse;
-import com.hundred.monitor.server.model.response.BaseResponse;
 import com.hundred.monitor.server.service.AgentMetricsService;
 import com.hundred.monitor.server.service.AgentService;
 import lombok.extern.slf4j.Slf4j;
@@ -37,11 +37,11 @@ public class AgentController {
      * @return 注册响应
      */
     @PostMapping("/customer/register")
-    public BaseResponse<AgentRegisterResponse> register(@RequestBody CustomerRegisterRequest request) {
+    public BaseResponse<RegisterResponse> register(@RequestBody CustomerRegisterRequest request) {
         log.info("收到客户端注册请求: hostname={}, ip={}", request.getHostname(), request.getIp());
 
         try {
-            AgentRegisterResponse response = agentService.register(request);
+            RegisterResponse response = agentService.register(request);
             log.info("客户端注册成功: agentId={}, agentName={}", response.getAgentId(), response.getAgentName());
             return BaseResponse.success(response);
         } catch (Exception e) {

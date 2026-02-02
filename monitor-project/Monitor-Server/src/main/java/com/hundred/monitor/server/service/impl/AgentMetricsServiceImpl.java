@@ -4,7 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hundred.monitor.server.mapper.AgentMetricsMapper;
 import com.hundred.monitor.server.model.entity.AgentMetrics;
-import com.hundred.monitor.server.model.request.MetricsReportRequest;
+import com.hundred.monitor.commonlibrary.request.MetricsReportRequest;
+import com.hundred.monitor.commonlibrary.model.Metrics;
 import com.hundred.monitor.server.service.AgentMetricsService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +14,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 
 /**
  * Agent监控数据服务实现类
@@ -31,7 +31,7 @@ public class AgentMetricsServiceImpl implements AgentMetricsService {
     @Override
     public void saveMetrics(MetricsReportRequest request) {
         // TODO: 构建监控数据实体
-        MetricsReportRequest.Metrics metrics = request.getMetrics();
+        Metrics metrics = request.getMetrics();
 
         AgentMetrics agentMetrics = AgentMetrics.builder()
                 .agentId(request.getAgentId())

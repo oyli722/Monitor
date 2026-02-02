@@ -1,15 +1,14 @@
 package com.hundred.monitor.server.model.response;
 
-import com.hundred.monitor.commonlibrary.response.CommonResponse;
 import com.hundred.monitor.server.model.entity.User;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 
-@EqualsAndHashCode(callSuper = true)
 @Data
-public class RegisterResponse extends CommonResponse {
+public class RegisterResponse {
+    private Boolean success;
+    private String message;
     private String token;
-    User user;
+    private User user;
 
     public static RegisterResponse success(User user, String token) {
         RegisterResponse response = new RegisterResponse();
@@ -26,5 +25,4 @@ public class RegisterResponse extends CommonResponse {
         response.setMessage(message);
         return response;
     }
-
 }

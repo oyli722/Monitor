@@ -1,7 +1,7 @@
 package com.hundred.monitor.server.controller;
 
 import com.hundred.monitor.server.model.response.AgentBasicInfoResponse;
-import com.hundred.monitor.server.model.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.response.BaseResponse;
 import com.hundred.monitor.server.model.response.MetricsHistoryResponse;
 import com.hundred.monitor.server.model.response.MetricsResponse;
 import com.hundred.monitor.server.model.request.MetricsHistoryRequest;

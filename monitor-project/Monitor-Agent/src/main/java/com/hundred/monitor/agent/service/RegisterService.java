@@ -2,10 +2,10 @@ package com.hundred.monitor.agent.service;
 
 import com.hundred.monitor.agent.config.ConfigLoader;
 import com.hundred.monitor.agent.model.entity.AgentConfig;
-import com.hundred.monitor.agent.model.entity.BasicInfo;
-import com.hundred.monitor.agent.model.request.RegisterRequest;
-import com.hundred.monitor.agent.model.response.CommonResponse;
-import com.hundred.monitor.agent.model.response.RegisterResponse;
+import com.hundred.monitor.commonlibrary.model.BasicInfo;
+import com.hundred.monitor.commonlibrary.request.RegisterRequest;
+import com.hundred.monitor.commonlibrary.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.response.RegisterResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -143,12 +143,12 @@ public class RegisterService {
 
         try {
             String url = buildUrl(endpoint, "/api/health");
-            ResponseEntity<CommonResponse> response = restTemplate.getForEntity(url, CommonResponse.class);
+            ResponseEntity<BaseResponse> response = restTemplate.getForEntity(url, BaseResponse.class);
 
             long responseTime = System.currentTimeMillis() - startTime;
 
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null
-                    && response.getBody().getSuccess()) {
+                    && response.getBody().isSuccess()) {
                 return responseTime;
             }
 

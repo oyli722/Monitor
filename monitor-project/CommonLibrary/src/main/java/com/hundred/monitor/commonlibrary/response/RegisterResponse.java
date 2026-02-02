@@ -1,25 +1,31 @@
 package com.hundred.monitor.commonlibrary.response;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
- * 注册响应模型
+ * Agent注册响应
  */
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class RegisterResponse {
 
     /**
-     * 请求是否成功
+     * 是否成功
      */
     private Boolean success;
 
     /**
-     * 分配的Agent ID
+     * Agent ID
      */
     private String agentId;
 
     /**
-     * 分配的Agent名称
+     * Agent名称
      */
     private String agentName;
 

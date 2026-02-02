@@ -6,7 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hundred.monitor.server.mapper.AgentMapper;
 import com.hundred.monitor.server.model.entity.Agent;
 import com.hundred.monitor.server.model.request.CustomerRegisterRequest;
-import com.hundred.monitor.server.model.response.AgentRegisterResponse;
+import com.hundred.monitor.commonlibrary.model.BasicInfo;
+import com.hundred.monitor.commonlibrary.response.RegisterResponse;
 import com.hundred.monitor.server.service.AgentService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,7 +44,7 @@ public class AgentServiceImpl implements AgentService {
     }
 
     @Override
-    public AgentRegisterResponse register(CustomerRegisterRequest request) {
+    public RegisterResponse register(CustomerRegisterRequest request) {
         // TODO: 生成Agent ID和名称
         String agentId = generateAgentId();
         String agentName = generateAgentName(request.getHostname());
@@ -57,7 +58,7 @@ public class AgentServiceImpl implements AgentService {
                 .registeredAt(LocalDateTime.now())
                 .build();
 
-        CustomerRegisterRequest.AgentBasicInfo basicInfo = request.getBasicInfo();
+        BasicInfo basicInfo = request.getBasicInfo();
         if (basicInfo != null) {
             agent.setCpuModel(basicInfo.getCpuModel());
             agent.setCpuCores(basicInfo.getCpuCores());
@@ -85,7 +86,7 @@ public class AgentServiceImpl implements AgentService {
         LocalDateTime tokenExpires = LocalDateTime.now().plusDays(30);
         String authToken = "JWT_TOKEN_" + agentId + "_" + System.currentTimeMillis();
 
-        return AgentRegisterResponse.builder()
+        return RegisterResponse.builder()
                 .success(true)
                 .agentId(agentId)
                 .agentName(agentName)
@@ -95,7 +96,7 @@ public class AgentServiceImpl implements AgentService {
     }
 
     @Override
-    public void updateBasicInfo(String agentId, CustomerRegisterRequest.AgentBasicInfo basicInfo) {
+    public void updateBasicInfo(String agentId, BasicInfo basicInfo) {
         // TODO: 更新Agent基本数据
         Agent existingAgent = getAgentById(agentId);
         if (existingAgent == null) {

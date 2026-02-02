@@ -3,46 +3,19 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
-		<groupId>org.springframework.boot</groupId>
-		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.5.10</version>
-		<relativePath/> <!-- lookup parent from repository -->
+		<groupId>com.hundred.monitor</groupId>
+		<artifactId>monitor-parent</artifactId>
+		<version>0.0.1-SNAPSHOT</version>
+		<relativePath>../pom.xml</relativePath>
 	</parent>
-	<groupId>com.hundred.monitor</groupId>
 	<artifactId>Monitor-Agent</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
 	<name>Monitor-Agent</name>
 	<description>Monitor-Agent</description>
-	<url/>
-	<licenses>
-		<license/>
-	</licenses>
-	<developers>
-		<developer/>
-	</developers>
-	<scm>
-		<connection/>
-		<developerConnection/>
-		<tag/>
-		<url/>
-	</scm>
+
 	<properties>
-		<java.version>17</java.version>
-		<oshi.version>6.6.5</oshi.version>
-		<resilience4j.version>2.2.0</resilience4j.version>
 		<spring-cloud.version>2025.0.1</spring-cloud.version>
 	</properties>
-	<dependencyManagement>
-		<dependencies>
-			<dependency>
-				<groupId>org.springframework.cloud</groupId>
-				<artifactId>spring-cloud-dependencies</artifactId>
-				<version>${spring-cloud.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -52,57 +25,70 @@
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
-			<version>1.18.36</version>
 			<scope>provided</scope>
 		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+
 		<!-- Spring Boot Web：OpenFeign依赖的Servlet Web容器 -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
+
 		<dependency>
 			<groupId>com.github.oshi</groupId>
 			<artifactId>oshi-core</artifactId>
-			<version>6.4.3</version>
 		</dependency>
+
 		<dependency>
 			<groupId>net.java.dev.jna</groupId>
 			<artifactId>jna</artifactId>
 			<version>5.13.0</version>
 		</dependency>
+
 		<dependency>
 			<groupId>net.java.dev.jna</groupId>
 			<artifactId>jna-platform</artifactId>
 			<version>5.13.0</version>
 		</dependency>
+
 		<!-- SnakeYAML：配置文件解析 -->
 		<dependency>
 			<groupId>org.yaml</groupId>
 			<artifactId>snakeyaml</artifactId>
 		</dependency>
+
 		<!-- Resilience4j：容错与重试机制 -->
 		<dependency>
 			<groupId>io.github.resilience4j</groupId>
 			<artifactId>resilience4j-spring-boot3</artifactId>
-			<version>${resilience4j.version}</version>
 		</dependency>
+
 		<dependency>
 			<groupId>io.github.resilience4j</groupId>
 			<artifactId>resilience4j-reactor</artifactId>
-			<version>${resilience4j.version}</version>
 		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-loadbalancer</artifactId>
 		</dependency>
+
 		<dependency>
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-openfeign</artifactId>
+		</dependency>
+
+		<!-- CommonLibrary: 公共模型和请求/响应类 -->
+		<dependency>
+			<groupId>com.hundred.monitor</groupId>
+			<artifactId>common-library</artifactId>
+			<version>${project.version}</version>
 		</dependency>
 	</dependencies>
 
@@ -134,5 +120,4 @@
 			</plugin>
 		</plugins>
 	</build>
-
 </project>

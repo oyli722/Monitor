@@ -1,7 +1,7 @@
 package com.hundred.monitor.agent.controller;
 
 import com.hundred.monitor.agent.model.request.UpdateConfigRequest;
-import com.hundred.monitor.agent.model.response.CommonResponse;
+import com.hundred.monitor.commonlibrary.response.BaseResponse;
 import com.hundred.monitor.agent.service.ConfigUpdateService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,7 +27,7 @@ public class AgentController {
      * 更新配置
      */
     @PostMapping("/config")
-    public CommonResponse updateConfig(@RequestBody UpdateConfigRequest request) {
+    public BaseResponse updateConfig(@RequestBody UpdateConfigRequest request) {
         // TODO: 验证agentId
         return configUpdateService.updateConfig(request.getConfigUpdates());
     }

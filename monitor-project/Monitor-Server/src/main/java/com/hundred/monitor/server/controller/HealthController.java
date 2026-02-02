@@ -1,6 +1,6 @@
 package com.hundred.monitor.server.controller;
 
-import com.hundred.monitor.server.model.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.response.BaseResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;

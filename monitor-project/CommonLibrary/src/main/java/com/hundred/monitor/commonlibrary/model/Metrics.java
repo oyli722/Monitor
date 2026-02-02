@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * 运行时数据模型
- * 包含CPU、内存、磁盘、网络等实时指标
+ * Agent采集的实时监控指标
  */
 @Data
 public class Metrics {
