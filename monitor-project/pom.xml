@@ -45,6 +45,7 @@
         <jsch.version>0.1.55</jsch.version>
         <mybatis-plus.version>3.5.15</mybatis-plus.version>
         <jackson.version>2.18.2</jackson.version>
+
     </properties>
 
     <dependencyManagement>
