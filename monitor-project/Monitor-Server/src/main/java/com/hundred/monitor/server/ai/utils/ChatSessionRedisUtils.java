@@ -1,8 +1,8 @@
 package com.hundred.monitor.server.ai.utils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hundred.monitor.server.ai.entity.Message;
-import com.hundred.monitor.server.ai.entity.SessionInfo;
+import com.hundred.monitor.server.ai.entity.ChatMessage;
+import com.hundred.monitor.server.ai.entity.ChatSessionInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -13,12 +13,12 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
- * AI会话Redis工具类
- * 提供消息和会话的Redis操作，支持智能总结压缩机制
+ * 全局聊天会话Redis工具类（场景A：HTTP REST API）
+ * 管理全局聊天消息和会话的Redis存储，支持智能总结压缩机制
  */
 @Slf4j
 @Component
-public class ModelRedisUtils {
+public class ChatSessionRedisUtils {
 
     @Autowired
     private StringRedisTemplate redisTemplate;
@@ -47,10 +47,10 @@ public class ModelRedisUtils {
      * @param title     会话标题
      * @return 创建的会话信息
      */
-    public SessionInfo createSession(String userId, String sessionId, String title) {
+    public ChatSessionInfo createSession(String userId, String sessionId, String title) {
         long now = Instant.now().toEpochMilli();
 
-        SessionInfo sessionInfo = SessionInfo.builder()
+        ChatSessionInfo sessionInfo = ChatSessionInfo.builder()
                 .sessionId(sessionId)
                 .title(title)
                 .createdAt(now)
@@ -88,13 +88,13 @@ public class ModelRedisUtils {
      * @param sessionId 会话ID
      * @return 会话信息，不存在返回null
      */
-    public SessionInfo getSessionInfo(String sessionId) {
+    public ChatSessionInfo getSessionInfo(String sessionId) {
         try {
             String json = redisTemplate.opsForValue().get(CHAT_INFO_PREFIX + sessionId);
             if (json == null) {
                 return null;
             }
-            return objectMapper.readValue(json, SessionInfo.class);
+            return objectMapper.readValue(json, ChatSessionInfo.class);
         } catch (Exception e) {
             log.error("获取会话信息失败: sessionId={}", sessionId, e);
             return null;
@@ -106,7 +106,7 @@ public class ModelRedisUtils {
      *
      * @param sessionInfo 会话信息
      */
-    public void updateSessionInfo(SessionInfo sessionInfo) {
+    public void updateSessionInfo(ChatSessionInfo sessionInfo) {
         try {
             sessionInfo.setUpdatedAt(Instant.now().toEpochMilli());
             String json = objectMapper.writeValueAsString(sessionInfo);
@@ -170,12 +170,12 @@ public class ModelRedisUtils {
      * @param userId 用户ID
      * @return 会话信息列表
      */
-    public List<SessionInfo> getUserSessions(String userId) {
+    public List<ChatSessionInfo> getUserSessions(String userId) {
         List<String> sessionIds = getUserSessionIds(userId);
-        List<SessionInfo> sessions = new ArrayList<>();
+        List<ChatSessionInfo> sessions = new ArrayList<>();
 
         for (String sessionId : sessionIds) {
-            SessionInfo info = getSessionInfo(sessionId);
+            ChatSessionInfo info = getSessionInfo(sessionId);
             if (info != null) {
                 sessions.add(info);
             }
@@ -207,13 +207,13 @@ public class ModelRedisUtils {
      * @param sessionId 会话ID
      * @param message   消息
      */
-    public void addMessage(String sessionId, Message message) {
+    public void addMessage(String sessionId, ChatMessage message) {
         try {
             String messageJson = objectMapper.writeValueAsString(message);
             redisTemplate.opsForList().rightPush(CHAT_MESSAGES_PREFIX + sessionId, messageJson);
 
             // 更新会话的消息计数
-            SessionInfo sessionInfo = getSessionInfo(sessionId);
+            ChatSessionInfo sessionInfo = getSessionInfo(sessionId);
             if (sessionInfo != null) {
                 sessionInfo.setMessageCount(sessionInfo.getMessageCount() + 1);
                 updateSessionInfo(sessionInfo);
@@ -232,7 +232,7 @@ public class ModelRedisUtils {
      * @param sessionId 会话ID
      * @return 消息列表
      */
-    public List<Message> getMessages(String sessionId) {
+    public List<ChatMessage> getMessages(String sessionId) {
         try {
             List<String> jsonList = redisTemplate.opsForList().range(
                     CHAT_MESSAGES_PREFIX + sessionId,
@@ -244,9 +244,9 @@ public class ModelRedisUtils {
                 return new ArrayList<>();
             }
 
-            List<Message> messages = new ArrayList<>();
+            List<ChatMessage> messages = new ArrayList<>();
             for (String json : jsonList) {
-                Message message = objectMapper.readValue(json, Message.class);
+                ChatMessage message = objectMapper.readValue(json, ChatMessage.class);
                 messages.add(message);
             }
 
@@ -264,7 +264,7 @@ public class ModelRedisUtils {
      * @param count     消息数量
      * @return 消息列表
      */
-    public List<Message> getRecentMessages(String sessionId, int count) {
+    public List<ChatMessage> getRecentMessages(String sessionId, int count) {
         try {
             long size = redisTemplate.opsForList().size(CHAT_MESSAGES_PREFIX + sessionId);
             long start = Math.max(0, size - count);
@@ -279,9 +279,9 @@ public class ModelRedisUtils {
                 return new ArrayList<>();
             }
 
-            List<Message> messages = new ArrayList<>();
+            List<ChatMessage> messages = new ArrayList<>();
             for (String json : jsonList) {
-                Message message = objectMapper.readValue(json, Message.class);
+                ChatMessage message = objectMapper.readValue(json, ChatMessage.class);
                 messages.add(message);
             }
 
@@ -314,7 +314,7 @@ public class ModelRedisUtils {
      * @return true表示需要总结
      */
     public boolean needsSummary(String sessionId) {
-        SessionInfo sessionInfo = getSessionInfo(sessionId);
+        ChatSessionInfo sessionInfo = getSessionInfo(sessionId);
         if (sessionInfo == null) {
             return false;
         }
@@ -344,7 +344,7 @@ public class ModelRedisUtils {
      */
     public void setSummary(String sessionId, String summary) {
         try {
-            SessionInfo sessionInfo = getSessionInfo(sessionId);
+            ChatSessionInfo sessionInfo = getSessionInfo(sessionId);
             if (sessionInfo != null) {
                 sessionInfo.setSummary(summary);
                 sessionInfo.setLastSummaryAt(Instant.now().toEpochMilli());
@@ -363,7 +363,7 @@ public class ModelRedisUtils {
      * @return 总结内容，无总结返回null
      */
     public String getSummary(String sessionId) {
-        SessionInfo sessionInfo = getSessionInfo(sessionId);
+        ChatSessionInfo sessionInfo = getSessionInfo(sessionId);
         return sessionInfo != null ? sessionInfo.getSummary() : null;
     }
 
@@ -381,8 +381,8 @@ public class ModelRedisUtils {
             // 清空消息列表
             clearMessages(sessionId);
 
-            // 重置消息计数（保留在SessionInfo中，但清空实际消息）
-            SessionInfo sessionInfo = getSessionInfo(sessionId);
+            // 重置消息计数（保留在ChatSessionInfo中，但清空实际消息）
+            ChatSessionInfo sessionInfo = getSessionInfo(sessionId);
             if (sessionInfo != null) {
                 sessionInfo.setMessageCount(0);
                 updateSessionInfo(sessionInfo);
@@ -415,7 +415,7 @@ public class ModelRedisUtils {
      * @param agentId    主机ID
      */
     public void linkAgent(String sessionId, String agentId) {
-        SessionInfo sessionInfo = getSessionInfo(sessionId);
+        ChatSessionInfo sessionInfo = getSessionInfo(sessionId);
         if (sessionInfo != null) {
             sessionInfo.setLinkedAgentId(agentId);
             updateSessionInfo(sessionInfo);
@@ -429,7 +429,7 @@ public class ModelRedisUtils {
      * @return 主机ID，无关联返回null
      */
     public String getLinkedAgent(String sessionId) {
-        SessionInfo sessionInfo = getSessionInfo(sessionId);
+        ChatSessionInfo sessionInfo = getSessionInfo(sessionId);
         return sessionInfo != null ? sessionInfo.getLinkedAgentId() : null;
     }
 }

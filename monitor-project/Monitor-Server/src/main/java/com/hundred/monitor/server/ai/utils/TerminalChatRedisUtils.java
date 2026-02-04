@@ -1,8 +1,8 @@
 package com.hundred.monitor.server.ai.utils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hundred.monitor.server.ai.entity.Message;
-import com.hundred.monitor.server.ai.entity.SessionInfo;
+import com.hundred.monitor.server.ai.entity.SshAssistantMessage;
+import com.hundred.monitor.server.ai.entity.SshAssistantSessionInfo;
 import com.hundred.monitor.server.ai.entity.SshSessionBinding;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,12 +15,12 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 主机详情页AI助手Redis工具类
- * 管理SSH与AI会话绑定关系、消息存储、会话信息
+ * SSH终端聊天会话Redis工具类（场景B：WebSocket + SSH绑定）
+ * 管理SSH终端助手的消息、会话信息和绑定关系
  */
 @Slf4j
 @Component
-public class AiSshRedisUtils {
+public class TerminalChatRedisUtils {
 
     @Autowired
     private StringRedisTemplate redisTemplate;
@@ -118,7 +118,7 @@ public class AiSshRedisUtils {
      * @param aiSessionId AI会话ID
      * @param message     消息对象
      */
-    public void addMessage(String aiSessionId, Message message) {
+    public void addMessage(String aiSessionId, SshAssistantMessage message) {
         try {
             String key = MESSAGES_PREFIX + aiSessionId;
             String json = objectMapper.writeValueAsString(message);
@@ -137,7 +137,7 @@ public class AiSshRedisUtils {
      * @param aiSessionId AI会话ID
      * @return 消息列表
      */
-    public List<Message> getMessages(String aiSessionId) {
+    public List<SshAssistantMessage> getMessages(String aiSessionId) {
         try {
             String key = MESSAGES_PREFIX + aiSessionId;
             List<String> jsonList = redisTemplate.opsForList().range(key, 0, -1);
@@ -145,9 +145,9 @@ public class AiSshRedisUtils {
                 return new ArrayList<>();
             }
 
-            List<Message> messages = new ArrayList<>();
+            List<SshAssistantMessage> messages = new ArrayList<>();
             for (String json : jsonList) {
-                messages.add(objectMapper.readValue(json, Message.class));
+                messages.add(objectMapper.readValue(json, SshAssistantMessage.class));
             }
             return messages;
         } catch (Exception e) {
@@ -163,7 +163,7 @@ public class AiSshRedisUtils {
      * @param count       消息数量
      * @return 消息列表
      */
-    public List<Message> getRecentMessages(String aiSessionId, int count) {
+    public List<SshAssistantMessage> getRecentMessages(String aiSessionId, int count) {
         try {
             String key = MESSAGES_PREFIX + aiSessionId;
             long size = redisTemplate.opsForList().size(key);
@@ -174,9 +174,9 @@ public class AiSshRedisUtils {
                 return new ArrayList<>();
             }
 
-            List<Message> messages = new ArrayList<>();
+            List<SshAssistantMessage> messages = new ArrayList<>();
             for (String json : jsonList) {
-                messages.add(objectMapper.readValue(json, Message.class));
+                messages.add(objectMapper.readValue(json, SshAssistantMessage.class));
             }
             return messages;
         } catch (Exception e) {
@@ -237,7 +237,7 @@ public class AiSshRedisUtils {
      *
      * @param sessionInfo 会话信息对象
      */
-    public void saveSessionInfo(SessionInfo sessionInfo) {
+    public void saveSessionInfo(SshAssistantSessionInfo sessionInfo) {
         try {
             String key = INFO_PREFIX + sessionInfo.getSessionId();
             String json = objectMapper.writeValueAsString(sessionInfo);
@@ -255,14 +255,14 @@ public class AiSshRedisUtils {
      * @param aiSessionId AI会话ID
      * @return 会话信息对象，不存在返回null
      */
-    public SessionInfo getSessionInfo(String aiSessionId) {
+    public SshAssistantSessionInfo getSessionInfo(String aiSessionId) {
         try {
             String key = INFO_PREFIX + aiSessionId;
             String json = redisTemplate.opsForValue().get(key);
             if (json == null) {
                 return null;
             }
-            return objectMapper.readValue(json, SessionInfo.class);
+            return objectMapper.readValue(json, SshAssistantSessionInfo.class);
         } catch (Exception e) {
             log.error("获取会话信息失败: sessionId={}", aiSessionId, e);
             return null;

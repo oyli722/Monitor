@@ -1,10 +1,11 @@
 package com.hundred.monitor.server.ai.service;
 
-import com.hundred.monitor.server.ai.entity.Message;
-import com.hundred.monitor.server.ai.entity.SessionInfo;
-import com.hundred.monitor.server.ai.utils.ModelRedisUtils;
+import com.hundred.monitor.server.ai.entity.ChatMessage;
+import com.hundred.monitor.server.ai.entity.ChatSessionInfo;
+import com.hundred.monitor.server.ai.entity.SystemPrompt;
+import com.hundred.monitor.server.ai.utils.ChatSessionRedisUtils;
 import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
@@ -27,7 +28,7 @@ import java.util.UUID;
 public class ChatService {
 
     @Resource
-    private ModelRedisUtils redisUtils;
+    private ChatSessionRedisUtils redisUtils;
 
     @Resource(name = "defaultOpenAiChatModel")
     private OpenAiChatModel defaultOpenAiChatModel;
@@ -40,30 +41,6 @@ public class ChatService {
 
     @Value("${ai.monitor-agent.default-model-name:ollama}")
     private String defaultModelName;
-
-    // 系统提示词
-    private static final String SYSTEM_PROMPT = """
-            你是一个专业的服务器运维AI助手，服务于Monitor监控系统。
-            你的核心能力是通过自然语言理解，帮助用户完成服务器集群的监控、诊断和运维操作。
-
-            ## 核心特性
-            - 自然语言理解：理解用户的运维意图，解析为具体操作
-            - 上下文感知：理解当前页面、选中主机、历史对话
-            - 安全优先：高风险操作必须确认，防止误操作
-            - 结果反馈：清晰展示操作过程和结果
-
-            ## 你能做的
-            - 解析自然语言运维指令
-            - 查询主机状态和监控数据
-            - 提供运维建议
-            - 分析日志和监控数据
-
-            ## 你不能做的
-            - 未经用户确认执行高风险操作
-            - 访问用户权限之外的主机
-            - 修改系统核心配置
-            - 删除重要数据
-            """;
 
     // 总结提示词
     private static final String SUMMARY_PROMPT = """
@@ -113,7 +90,7 @@ public class ChatService {
      * @param sessionId 会话ID
      * @return 会话信息
      */
-    public SessionInfo getSession(String sessionId) {
+    public ChatSessionInfo getSession(String sessionId) {
         return redisUtils.getSessionInfo(sessionId);
     }
 
@@ -123,7 +100,7 @@ public class ChatService {
      * @param userId 用户ID
      * @return 会话列表
      */
-    public List<SessionInfo> getUserSessions(String userId) {
+    public List<ChatSessionInfo> getUserSessions(String userId) {
         return redisUtils.getUserSessions(userId);
     }
 
@@ -156,7 +133,7 @@ public class ChatService {
         }
 
         // 构建用户消息
-        Message userMsg = Message.builder()
+        ChatMessage userMsg = ChatMessage.builder()
                 .role("user")
                 .content(userMessage)
                 .timestamp(Instant.now().toEpochMilli())
@@ -169,13 +146,13 @@ public class ChatService {
         redisUtils.refreshSessionTime(userId, sessionId);
 
         // 获取上下文消息
-        List<ChatMessage> contextMessages = buildContext(sessionId);
+        List<dev.langchain4j.data.message.ChatMessage> contextMessages = buildContext(sessionId);
 
         // 调用AI模型
         String aiResponse = callAI(contextMessages, modelName);
 
         // 构建AI消息
-        Message aiMsg = Message.builder()
+        ChatMessage aiMsg = ChatMessage.builder()
                 .role("assistant")
                 .content(aiResponse)
                 .timestamp(Instant.now().toEpochMilli())
@@ -198,7 +175,7 @@ public class ChatService {
      * @param sessionId 会话ID
      * @return 消息列表
      */
-    public List<Message> getMessages(String sessionId) {
+    public List<com.hundred.monitor.server.ai.entity.ChatMessage> getMessages(String sessionId) {
         return redisUtils.getMessages(sessionId);
     }
 
@@ -220,11 +197,11 @@ public class ChatService {
      * @param sessionId 会话ID
      * @return 上下文消息列表
      */
-    private List<ChatMessage> buildContext(String sessionId) {
-        List<ChatMessage> messages = new ArrayList<>();
+    private List<dev.langchain4j.data.message.ChatMessage> buildContext(String sessionId) {
+        List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
 
         // 添加系统提示词
-        messages.add(new UserMessage(SYSTEM_PROMPT));
+        messages.add(new SystemMessage(SystemPrompt.getSystemPrompt()));
 
         // 获取会话总结
         String summary = redisUtils.getSummary(sessionId);
@@ -234,8 +211,8 @@ public class ChatService {
         }
 
         // 获取近期消息（最多10条）
-        List<Message> recentMessages = redisUtils.getRecentMessages(sessionId, 10);
-        for (Message msg : recentMessages) {
+        List<com.hundred.monitor.server.ai.entity.ChatMessage> recentMessages = redisUtils.getRecentMessages(sessionId, 10);
+        for (com.hundred.monitor.server.ai.entity.ChatMessage msg : recentMessages) {
             if ("user".equals(msg.getRole())) {
                 messages.add(new UserMessage(msg.getContent()));
             } else if ("assistant".equals(msg.getRole())) {
@@ -253,7 +230,7 @@ public class ChatService {
      * @param modelName 模型名称
      * @return AI回复
      */
-    private String callAI(List<ChatMessage> messages, String modelName) {
+    private String callAI(List<dev.langchain4j.data.message.ChatMessage> messages, String modelName) {
         try {
             ChatLanguageModel model = selectModel(modelName);
             return model.chat(messages).aiMessage().text();
@@ -293,11 +270,11 @@ public class ChatService {
             log.info("开始执行会话总结: sessionId={}", sessionId);
 
             // 获取所有消息
-            List<Message> allMessages = redisUtils.getMessages(sessionId);
+            List<com.hundred.monitor.server.ai.entity.ChatMessage> allMessages = redisUtils.getMessages(sessionId);
 
             // 构建总结用的对话文本
             StringBuilder conversation = new StringBuilder();
-            for (Message msg : allMessages) {
+            for (com.hundred.monitor.server.ai.entity.ChatMessage msg : allMessages) {
                 String role = "user".equals(msg.getRole()) ? "用户" : "助手";
                 conversation.append(role).append(": ").append(msg.getContent()).append("\n");
             }
@@ -323,7 +300,7 @@ public class ChatService {
     private String generateSummary(String conversation) {
         try {
             // 使用默认模型生成总结
-            List<ChatMessage> messages = List.of(
+            List<dev.langchain4j.data.message.ChatMessage> messages = List.of(
                     new UserMessage(SUMMARY_PROMPT + "\n\n" + conversation)
             );
             return selectModel(null).chat(messages).aiMessage().text();

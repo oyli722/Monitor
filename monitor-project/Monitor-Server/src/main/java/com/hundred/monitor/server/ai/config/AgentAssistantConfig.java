@@ -10,6 +10,7 @@ import dev.langchain4j.service.AiServices;
 import jakarta.annotation.Resource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 
 /**
@@ -27,11 +28,20 @@ public class AgentAssistantConfig {
     @Resource
     SshExecuteTool sshExecuteTool;
 
+    /**
+     * Ollama模型（用于场景A直接注入，场景B通过Assistant使用）
+     */
     @Bean
-    public OpenAiChatModel defaultOpenAiChatModel() {
-        return monitorAgentCreateProperty.getDefaultModelName().equals("ollama") ? getOllamaAiChatModel() : getGlmAiChatModel();
+    public OpenAiChatModel getOllamaAiChatModel() {
+        return OpenAiChatModel.builder()
+                .modelName(agentOllamaChatModelAssistantProperty.getModelName())
+                .baseUrl(agentOllamaChatModelAssistantProperty.getBaseUrl())
+                .build();
     }
 
+    /**
+     * GLM模型（用于场景A直接注入，场景B通过Assistant使用）
+     */
     @Bean
     public OpenAiChatModel getGlmAiChatModel() {
         return OpenAiChatModel.builder()
@@ -42,34 +52,54 @@ public class AgentAssistantConfig {
                 .build();
     }
 
+    /**
+     * 默认模型（用于场景A：全局聊天）
+     * 场景A直接使用此模型，不经过Assistant
+     */
     @Bean
-    public OpenAiChatModel getOllamaAiChatModel() {
-        return OpenAiChatModel.builder()
-                .modelName(agentOllamaChatModelAssistantProperty.getModelName())
-                .baseUrl(agentOllamaChatModelAssistantProperty.getBaseUrl())
-                .build();
+    @Primary
+    public OpenAiChatModel defaultOpenAiChatModel() {
+        // 直接根据配置创建，避免调用其他Bean方法
+        String modelName = monitorAgentCreateProperty.getDefaultModelName();
+        if ("glm".equalsIgnoreCase(modelName)) {
+            return getGlmAiChatModel();
+        } else {
+            return getOllamaAiChatModel();
+        }
     }
 
+    /**
+     * 默认Ollama Assistant（用于场景B：SSH终端助手）
+     */
     @Bean
-    public Assistant getDefaultAssistant() {
-        return AiServices.builder(Assistant.class)
-                .chatLanguageModel(defaultOpenAiChatModel())
-                .tools(sshExecuteTool)
-                .build();
-    }
-
-    @Bean
-    public Assistant getOllamaAssistant() {
+    public Assistant getDefaultOllamaAssistant() {
         return AiServices.builder(Assistant.class)
                 .chatLanguageModel(getOllamaAiChatModel())
                 .tools(sshExecuteTool)
                 .build();
     }
 
+    /**
+     * 默认GLM Assistant（用于场景B：SSH终端助手）
+     */
     @Bean
-    public Assistant getGlmAssistant() {
+    public Assistant getDefaultGlmAssistant() {
         return AiServices.builder(Assistant.class)
                 .chatLanguageModel(getGlmAiChatModel())
+                .tools(sshExecuteTool)
+                .build();
+    }
+
+    /**
+     * 根据配置选择默认的Assistant（用于场景B）
+     * 使用方法注入避免循环依赖
+     */
+    @Bean
+    @Primary
+    public Assistant defaultAssistant(
+            @org.springframework.beans.factory.annotation.Qualifier("defaultOpenAiChatModel") OpenAiChatModel model) {
+        return AiServices.builder(Assistant.class)
+                .chatLanguageModel(model)
                 .tools(sshExecuteTool)
                 .build();
     }

@@ -7,13 +7,13 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 聊天消息实体
+ * 聊天消息实体（场景B：SSH绑定助手）
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Message {
+public class SshAssistantMessage {
     /**
      * 消息角色：user 或 assistant
      */

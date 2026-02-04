@@ -1,9 +1,12 @@
 package com.hundred.monitor.server.ai.service;
 
 import com.hundred.monitor.server.ai.context.SshSessionContext;
-import com.hundred.monitor.server.ai.entity.Message;
+import com.hundred.monitor.server.ai.entity.Assistant;
+import com.hundred.monitor.server.ai.entity.SshAssistantMessage;
+import com.hundred.monitor.server.ai.entity.SshAssistantSessionInfo;
 import com.hundred.monitor.server.ai.entity.SshSessionBinding;
-import com.hundred.monitor.server.ai.utils.AiSshRedisUtils;
+import com.hundred.monitor.server.ai.entity.SystemPrompt;
+import com.hundred.monitor.server.ai.utils.TerminalChatRedisUtils;
 import com.hundred.monitor.server.service.AgentService;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -29,7 +32,7 @@ import java.util.List;
 public class AiSshAssistantService {
 
     @Resource
-    private AiSshRedisUtils aiSshRedisUtils;
+    private TerminalChatRedisUtils aiSshRedisUtils;
 
     @Resource(name = "getOllamaAiChatModel")
     private OpenAiChatModel ollamaChatModel;
@@ -40,41 +43,27 @@ public class AiSshAssistantService {
     @Resource
     private AgentService agentService;
 
+    @Resource
+    private Assistant defaultAssistant;
+
+    @Resource(name = "getDefaultOllamaAssistant")
+    private Assistant ollamaAssistant;
+
+    @Resource(name = "getDefaultGlmAssistant")
+    private Assistant glmAssistant;
+
     @Value("${ai.monitor-agent.default-model-name:ollama}")
     private String defaultModelName;
 
     // 消息数量阈值（超过此数量触发总结）
     private static final int MESSAGE_THRESHOLD = 20;
 
-    // 系统提示词
-    private static final String SYSTEM_PROMPT = """
-            你是一个专业的服务器运维AI助手，服务于Monitor监控系统。
-            你的核心能力是通过自然语言理解，帮助用户完成服务器集群的监控、诊断和运维操作。
-
-            ## 核心特性
-            - 自然语言理解：理解用户的运维意图，解析为具体操作
-            - 上下文感知：理解当前操作的主机信息
-            - 安全优先：高风险操作必须确认，防止误操作
-            - 结果反馈：清晰展示操作过程和结果
-
-            ## 你能做的
-            - 解析自然语言运维指令
-            - 调用工具执行SSH命令（executeCommand工具）
-            - 查询主机状态和监控数据
-            - 提供运维建议
-            - 分析日志和监控数据
-
-            ## 可用工具
-            - executeCommand(command): 在当前SSH终端执行命令，返回命令已发送提示
-            - getCurrentAgentId(): 获取当前SSH会话关联的主机ID
-            - testToolIfAvailable(): 测试SSH执行工具是否可用
-
-            ## 你不能做的
-            - 未经用户确认执行高风险操作
-            - 访问用户权限之外的主机
-            - 修改系统核心配置
-            - 删除重要数据
-            """;
+    /**
+     * 是否使用Assistant Bean（支持工具调用）
+     * 如果为false，则直接使用ChatLanguageModel（不支持工具调用）
+     */
+    @Value("${ai.monitor-agent.use-assistant:true}")
+    private boolean useAssistant;
 
     // ==================== 核心对话方法 ====================
 
@@ -93,7 +82,7 @@ public class AiSshAssistantService {
         }
 
         // 2. 保存用户消息
-        Message userMsg = Message.builder()
+        SshAssistantMessage userMsg = SshAssistantMessage.builder()
                 .role("user")
                 .content(userMessage)
                 .timestamp(Instant.now().toEpochMilli())
@@ -101,7 +90,7 @@ public class AiSshAssistantService {
         aiSshRedisUtils.addMessage(aiSessionId, userMsg);
 
         // 3. 构建AI上下文
-        List<ChatMessage> context = buildContext(binding);
+        List<dev.langchain4j.data.message.ChatMessage> context = buildContext(binding);
 
         // 4. 设置ThreadLocal上下文（供SshExecuteTool使用）
         SshSessionContext.setSshSessionId(binding.getSshSessionId());
@@ -117,7 +106,7 @@ public class AiSshAssistantService {
         }
 
         // 7. 保存AI回复
-        Message aiMsg = Message.builder()
+        SshAssistantMessage aiMsg = SshAssistantMessage.builder()
                 .role("assistant")
                 .content(aiReply)
                 .timestamp(Instant.now().toEpochMilli())
@@ -139,7 +128,7 @@ public class AiSshAssistantService {
      * @param aiSessionId AI会话ID
      * @return 消息列表
      */
-    public List<Message> getMessages(String aiSessionId) {
+    public List<SshAssistantMessage> getMessages(String aiSessionId) {
         return aiSshRedisUtils.getMessages(aiSessionId);
     }
 
@@ -161,18 +150,18 @@ public class AiSshAssistantService {
      * @param binding 绑定关系
      * @return 上下文消息列表
      */
-    private List<ChatMessage> buildContext(SshSessionBinding binding) {
-        List<ChatMessage> context = new ArrayList<>();
+    private List<dev.langchain4j.data.message.ChatMessage> buildContext(SshSessionBinding binding) {
+        List<dev.langchain4j.data.message.ChatMessage> context = new ArrayList<>();
 
         // 1. 添加系统提示词（带主机上下文）
         String systemPromptWithContext = buildSystemPrompt(binding);
         context.add(new SystemMessage(systemPromptWithContext));
 
         // 2. 添加历史消息（最近10条）
-        List<Message> recentMessages = aiSshRedisUtils.getRecentMessages(
+        List<SshAssistantMessage> recentMessages = aiSshRedisUtils.getRecentMessages(
                 binding.getAiSessionId(), 10);
 
-        for (Message msg : recentMessages) {
+        for (SshAssistantMessage msg : recentMessages) {
             if ("user".equals(msg.getRole())) {
                 context.add(new UserMessage(msg.getContent()));
             } else if ("assistant".equals(msg.getRole())) {
@@ -191,7 +180,8 @@ public class AiSshAssistantService {
      */
     private String buildSystemPrompt(SshSessionBinding binding) {
         StringBuilder sb = new StringBuilder();
-        sb.append(SYSTEM_PROMPT);
+        // 使用统一的SSH助手提示词
+        sb.append(SystemPrompt.getSshAssistantPrompt());
         sb.append("\n\n## 当前上下文\n");
         sb.append("- 主机ID: ").append(binding.getAgentId()).append("\n");
 
@@ -220,15 +210,15 @@ public class AiSshAssistantService {
      * @param agentId  主机ID（用于选择模型）
      * @return AI回复内容
      */
-    private String callAI(List<ChatMessage> context, String agentId) {
+    private String callAI(List<dev.langchain4j.data.message.ChatMessage> context, String agentId) {
         try {
-            ChatLanguageModel model = selectModel(defaultModelName);
-
-            // 调用LangChain4j的chat方法
-            var response = model.chat(context);
-
-            return response.aiMessage().text();
-
+            if (useAssistant) {
+                // 使用Assistant Bean（支持工具调用）
+                return callAIWithAssistant(context);
+            } else {
+                // 直接使用ChatLanguageModel（不支持工具调用）
+                return callAIWithModel(context);
+            }
         } catch (Exception e) {
             log.error("AI调用失败: agentId={}", agentId, e);
             return "抱歉，AI服务暂时不可用，请稍后再试。错误: " + e.getMessage();
@@ -236,7 +226,83 @@ public class AiSshAssistantService {
     }
 
     /**
-     * 选择AI模型
+     * 使用Assistant Bean调用AI（支持工具调用）
+     * 使用双参数chat方法，正确传递系统提示词
+     */
+    private String callAIWithAssistant(List<dev.langchain4j.data.message.ChatMessage> context) {
+        // 提取系统提示词
+        String systemPrompt = "";
+        StringBuilder historyBuilder = new StringBuilder();
+
+        for (dev.langchain4j.data.message.ChatMessage msg : context) {
+            if (msg instanceof SystemMessage) {
+                systemPrompt = ((SystemMessage) msg).text();
+            } else if (msg instanceof UserMessage) {
+                historyBuilder.append("用户: ").append(extractUserMessageText((UserMessage) msg)).append("\n");
+            } else if (msg instanceof AiMessage) {
+                historyBuilder.append("助手: ").append(((AiMessage) msg).text()).append("\n");
+            }
+        }
+
+        // 构建用户消息（包含对话历史）
+        String userMessage = buildUserMessage(historyBuilder);
+
+        // 选择Assistant
+        Assistant assistant = selectAssistant(defaultModelName);
+
+        // 调用Assistant双参数方法：chat(systemPrompt, userMessage)
+        // 这样系统提示词会被正确设置，而非被当作用户消息处理
+        return assistant.chat(systemPrompt, userMessage);
+    }
+
+    /**
+     * 构建用户消息（包含对话历史）
+     */
+    private String buildUserMessage(StringBuilder historyBuilder) {
+        StringBuilder userMessage = new StringBuilder();
+
+        if (!historyBuilder.isEmpty()) {
+            userMessage.append("## 对话历史\n");
+            userMessage.append(historyBuilder);
+            userMessage.append("\n请根据以上对话历史回复用户的最后一条消息。");
+        }
+
+        return userMessage.toString();
+    }
+
+    /**
+     * 使用ChatLanguageModel直接调用（不支持工具调用）
+     */
+    private String callAIWithModel(List<dev.langchain4j.data.message.ChatMessage> context) {
+        ChatLanguageModel model = selectModel(defaultModelName);
+        var response = model.chat(context);
+        return response.aiMessage().text();
+    }
+
+    /**
+     * 从UserMessage提取文本内容
+     */
+    private String extractUserMessageText(dev.langchain4j.data.message.UserMessage userMsg) {
+        // UserMessage可能包含SingleText，需要特殊处理
+        return userMsg.toString(); // 或者使用 userMsg.singleText() 如果可用
+    }
+
+    /**
+     * 选择Assistant Bean
+     *
+     * @param modelName 模型名称（ollama或glm）
+     * @return Assistant实例
+     */
+    private Assistant selectAssistant(String modelName) {
+        if ("glm".equalsIgnoreCase(modelName)) {
+            return glmAssistant;
+        } else {
+            return ollamaAssistant; // 默认使用Ollama
+        }
+    }
+
+    /**
+     * 选择ChatLanguageModel（用于非工具调用模式）
      *
      * @param modelName 模型名称（ollama或glm）
      * @return ChatLanguageModel实例
@@ -275,18 +341,18 @@ public class AiSshAssistantService {
         log.info("开始执行会话总结: aiSessionId={}", aiSessionId);
 
         // 1. 获取所有消息
-        List<Message> allMessages = aiSshRedisUtils.getMessages(aiSessionId);
+        List<SshAssistantMessage> allMessages = aiSshRedisUtils.getMessages(aiSessionId);
 
         // 2. 构建总结用的对话文本
         StringBuilder conversation = new StringBuilder();
-        for (Message msg : allMessages) {
+        for (SshAssistantMessage msg : allMessages) {
             String role = "user".equals(msg.getRole()) ? "用户" : "助手";
             conversation.append(role).append(": ").append(msg.getContent()).append("\n");
         }
 
         // 3. 调用AI生成总结
         String summaryPrompt = "请将以下对话内容总结为一段简洁的摘要，保留关键信息（用户意图、重要操作、结论）：\n\n" + conversation;
-        List<ChatMessage> summaryContext = List.of(new UserMessage(summaryPrompt));
+        List<dev.langchain4j.data.message.ChatMessage> summaryContext = List.of(new UserMessage(summaryPrompt));
 
         String summary = selectModel(defaultModelName).chat(summaryContext).aiMessage().text();
 

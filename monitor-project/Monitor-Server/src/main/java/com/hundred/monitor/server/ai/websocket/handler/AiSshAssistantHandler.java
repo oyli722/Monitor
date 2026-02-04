@@ -2,7 +2,7 @@ package com.hundred.monitor.server.ai.websocket.handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hundred.monitor.server.ai.service.AiSshAssistantService;
-import com.hundred.monitor.server.ai.utils.AiSshRedisUtils;
+import com.hundred.monitor.server.ai.utils.TerminalChatRedisUtils;
 import com.hundred.monitor.server.ai.websocket.dto.WsChatMessage;
 import com.hundred.monitor.server.ai.websocket.manager.AiSshAssistantManager;
 import jakarta.annotation.Resource;
@@ -31,7 +31,7 @@ public class AiSshAssistantHandler implements WebSocketHandler {
     private AiSshAssistantService aiSshAssistantService;
 
     @Resource
-    private AiSshRedisUtils aiSshRedisUtils;
+    private TerminalChatRedisUtils aiSshRedisUtils;
 
     @Resource
     private ObjectMapper objectMapper;

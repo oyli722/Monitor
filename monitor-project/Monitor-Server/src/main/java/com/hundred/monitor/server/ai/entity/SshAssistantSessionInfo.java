@@ -6,13 +6,13 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 会话信息实体（Redis映射）
+ * 会话信息实体（场景B：SSH绑定助手）
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SessionInfo {
+public class SshAssistantSessionInfo {
     /**
      * 会话ID
      */

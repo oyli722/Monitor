@@ -1,7 +1,7 @@
 package com.hundred.monitor.server.controller;
 
-import com.hundred.monitor.server.ai.entity.Message;
-import com.hundred.monitor.server.ai.entity.SessionInfo;
+import com.hundred.monitor.server.ai.entity.ChatMessage;
+import com.hundred.monitor.server.ai.entity.ChatSessionInfo;
 import com.hundred.monitor.server.ai.service.ChatService;
 import com.hundred.monitor.server.model.request.CreateSessionRequest;
 import com.hundred.monitor.server.model.request.SendMessageRequest;
@@ -43,7 +43,7 @@ public class ChatController {
                 chatService.linkAgent(sessionId, request.getAgentId());
             }
 
-            SessionInfo sessionInfo = chatService.getSession(sessionId);
+            ChatSessionInfo sessionInfo = chatService.getSession(sessionId);
             CreateSessionResponse response = CreateSessionResponse.builder()
                     .sessionId(sessionId)
                     .title(sessionInfo != null ? sessionInfo.getTitle() : "")
@@ -67,7 +67,7 @@ public class ChatController {
             // TODO: 从JWT中获取用户ID
             String userId = "default-user";
 
-            List<SessionInfo> sessions = chatService.getUserSessions(userId);
+            List<ChatSessionInfo> sessions = chatService.getUserSessions(userId);
 
             List<SessionInfoResponse> responseList = sessions.stream()
                     .map(this::toSessionInfoResponse)
@@ -89,7 +89,7 @@ public class ChatController {
     @GetMapping("/sessions/{sessionId}")
     public BaseResponse<SessionInfoResponse> getSession(@PathVariable String sessionId) {
         try {
-            SessionInfo sessionInfo = chatService.getSession(sessionId);
+            ChatSessionInfo sessionInfo = chatService.getSession(sessionId);
             if (sessionInfo == null) {
                 return BaseResponse.notFound("会话不存在");
             }
@@ -130,7 +130,7 @@ public class ChatController {
     @GetMapping("/sessions/{sessionId}/messages")
     public BaseResponse<List<ChatMessageResponse>> getMessages(@PathVariable String sessionId) {
         try {
-            List<Message> messages = chatService.getMessages(sessionId);
+            List<ChatMessage> messages = chatService.getMessages(sessionId);
 
             List<ChatMessageResponse> responseList = messages.stream()
                     .map(this::toChatMessageResponse)
@@ -226,7 +226,7 @@ public class ChatController {
     /**
      * 转换为会话信息响应
      */
-    private SessionInfoResponse toSessionInfoResponse(SessionInfo sessionInfo) {
+    private SessionInfoResponse toSessionInfoResponse(ChatSessionInfo sessionInfo) {
         return SessionInfoResponse.builder()
                 .sessionId(sessionInfo.getSessionId())
                 .title(sessionInfo.getTitle())
@@ -240,7 +240,7 @@ public class ChatController {
     /**
      * 转换为聊天消息响应
      */
-    private ChatMessageResponse toChatMessageResponse(Message message) {
+    private ChatMessageResponse toChatMessageResponse(ChatMessage message) {
         return ChatMessageResponse.builder()
                 .role(message.getRole())
                 .content(message.getContent())

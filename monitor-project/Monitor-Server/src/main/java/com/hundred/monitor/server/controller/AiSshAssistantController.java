@@ -1,8 +1,8 @@
 package com.hundred.monitor.server.controller;
 
-import com.hundred.monitor.server.ai.entity.SessionInfo;
+import com.hundred.monitor.server.ai.entity.SshAssistantSessionInfo;
 import com.hundred.monitor.server.ai.entity.SshSessionBinding;
-import com.hundred.monitor.server.ai.utils.AiSshRedisUtils;
+import com.hundred.monitor.server.ai.utils.TerminalChatRedisUtils;
 import com.hundred.monitor.server.model.request.ConnectRequest;
 import com.hundred.monitor.server.model.response.BaseResponse;
 import com.hundred.monitor.server.model.response.ConnectResponse;
@@ -23,7 +23,7 @@ import java.util.UUID;
 public class AiSshAssistantController {
 
     @Resource
-    private AiSshRedisUtils aiSshRedisUtils;
+    private TerminalChatRedisUtils aiSshRedisUtils;
 
     /**
      * 创建AI助手会话（连接）
@@ -50,7 +50,7 @@ public class AiSshAssistantController {
             aiSshRedisUtils.saveBinding(binding);
 
             // 4. 创建会话信息
-            SessionInfo sessionInfo = SessionInfo.builder()
+            SshAssistantSessionInfo sessionInfo = SshAssistantSessionInfo.builder()
                     .sessionId(aiSessionId)
                     .title("主机助手 - " + request.getAgentId())
                     .linkedAgentId(request.getAgentId())
