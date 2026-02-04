@@ -547,5 +547,311 @@ public String executeCommand(String command) {
 
 ---
 
-*文档创建时间：2025年*
-*最后更新时间：2025年（后端开发完成）*
+## 九、命令执行结果分析功能（V2.0）
+
+### 9.1 需求背景
+
+初始实现中，AI执行SSH命令后仅返回"命令已发送到终端"，无法获取命令的实际执行结果，也无法对结果进行分析。这导致：
+
+1. **AI无法获取命令输出**：AI看不到命令执行结果，无法进行进一步分析
+2. **前端看不到输出**：用户需要切换到SSH终端查看结果
+3. **缺少智能分析**：AI无法根据命令输出提供运维建议
+
+### 9.2 功能目标
+
+实现命令执行结果的完整链路：
+
+```
+AI执行命令 → 发送到SSH → 捕获输出 → 实时推送前端
+                                              ↓
+                                         AI分析输出 → 推送分析结果
+```
+
+### 9.3 设计方案：命令ID关联机制
+
+#### 核心思路
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           命令执行流程                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. AI决定执行命令 → 生成 commandId (时间戳)                              │
+│     ↓                                                                       │
+│  2. 注册命令上下文: CommandContext{commandId, aiSessionId, sshSessionId}    │
+│     ↓                                                                       │
+│  3. 发送命令到SSH (带起止标记)                                             │
+│     ├── ## COMMAND_START: {timestamp} ##                                  │
+│     ├── {command}                                                        │
+│     └── echo '## COMMAND_END: {timestamp} ##'                           │
+│     ↓                                                                       │
+│  4. SSH输出返回时 → 通过命令ID关联                                       │
+│     ├── 实时推送给前端 (command_output)                                  │
+│     ├── 缓存到 CommandContext                                            │
+│     └── 检测 COMMAND_END 标记                                            │
+│     ↓                                                                       │
+│  5. 命令完成 → 触发AI分析                                                  │
+│     ├── 推送完成消息 (command_complete)                                   │
+│     ├── 异步调用AI分析输出                                                │
+│     └── 推送分析结果 (reply)                                               │
+│     ↓                                                                       │
+│  6. 清理命令上下文 (延迟5秒)                                               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 架构组件
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              新增组件                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  CommandContext (命令上下文实体)                                      │    │
+│  │  ├── commandId: String        (命令唯一标识 - 时间戳)                   │    │
+│  │  ├── aiSessionId: String      (AI会话ID)                               │    │
+│  │  ├── sshSessionId: String     (SSH会话ID)                              │    │
+│  │  ├── command: String          (执行的命令)                              │    │
+│  │  ├── output: StringBuilder    (命令输出缓存)                           │    │
+│  │  ├── startTime: Long          (开始时间)                                │    │
+│  │  ├── status: CommandStatus    (执行状态)                               │    │
+│  │  └── timeoutMillis: Long      (超时时间，默认5秒)                     │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                              ↓ 管理命令上下文                                │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  CommandContextManager (命令上下文管理器)                            │    │
+│  │  ├── registerCommand()   注册命令                                    │    │
+│  │  ├── appendOutput()       追加输出到缓存                              │    │
+│  │  ├── completeCommand()    标记命令完成                              │    │
+│  │  ├── handleTimeout()      处理命令超时                                │    │
+│  │  ├── cleanup()            清理命令上下文                              │    │
+│  │  ├── pushOutputToFrontend() 实时推送输出给前端                       │    │
+│  │  └── triggerAiAnalysis()   异步触发AI分析                            │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  CommandTimeoutScheduler (超时定时任务)                              │    │
+│  │  ├── @Scheduled(fixedDelay=1000)  每1秒检查超时                      │    │
+│  │  └── 遍历所有EXECUTING状态的命令，检查是否超时                       │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  AsyncConfig (异步配置)                                               │    │
+│  │  ├── @EnableAsync                                                       │    │
+│  │  └── commandAnalysisExecutor (线程池: 2核心, 5最大, 100队列)         │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.4 完整交互流程
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│                          用户: "帮我查看CPU使用率"                                     │
+└────────────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│  AiSshAssistantService.sendMessage()                                           │
+│  ├── 获取绑定关系 (aiSessionId ↔ sshSessionId ↔ agentId)                        │
+│  ├── 保存用户消息到 Redis                                                          │
+│  ├── 构建AI上下文 (系统提示词 + 主机信息 + 历史消息)                            │
+│  └── 设置 ThreadLocal 上下文:                                                    │
+│      ├── SshSessionContext.setSshSessionId(sshSessionId)                        │
+│      ├── SshSessionContext.setAgentId(agentId)                                │
+│      └── SshSessionContext.setAiSessionId(aiSessionId)  ← 新增                   │
+└────────────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│  AI处理用户消息，决定调用工具                                                      │
+│  ┌──────────────────────────────────────────────────────────────────────────┐    │
+│  │  SshExecuteTool.executeCommand("top -n 1")                               │    │
+│  │    │                                                                      │    │
+│  │    ├─ 从 ThreadLocal 获取上下文                                          │    │
+│  │    │   ├── sshSessionId = SshSessionContext.getSshSessionId()           │    │
+│  │    │   └── aiSessionId = SshSessionContext.getAiSessionId()               │    │
+│  │    │                                                                      │    │
+│  │    ├─ CommandContextManager.registerCommand()                           │    │
+│  │    │   ├── 生成 commandId = UUID.randomUUID().toString()              │    │
+│  │    │   ├── 生成时间戳 timestamp = System.currentTimeMillis()          │    │
+│  │    │   └── 存储到 commandMap 和 activeCommands                             │    │
+│  │    │                                                                      │    │
+│  │    ├─ 发送命令到SSH OutputStream                                           │    │
+│  │    │   ├── "\n## COMMAND_START: " + timestamp + " ##\n"                   │    │
+│  │    │   ├── command + "\n"                                                │    │
+│  │    │   └── "echo '## COMMAND_END: " + timestamp + " ##'\n"              │    │
+│  │    │                                                                      │    │
+│  │    └─ 返回: "正在执行命令: top -n 1 (命令ID: abc-123...)"                │    │
+│  └──────────────────────────────────────────────────────────────────────────┘    │
+└────────────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│  SSH输出返回 → SshWebSocketHandler.sendToWebSocket()                             │
+│  ┌──────────────────────────────────────────────────────────────────────────┐    │
+│  │  检测是否有关联的AI命令 (通过 sshSessionId)                                 │    │
+│  │    │                                                                      │    │
+│  │    ├─ CommandContextManager.appendOutput(sshSessionId, output)        │    │
+│  │    │   ├── 追加输出到 CommandContext.output                            │    │
+│  │    │   └── 推送: WsChatMessage("command_output", output) → 前端        │    │
+│  │    │                                                                      │    │
+│  │    └─ 检测 COMMAND_END 标记                                                 │    │
+│  │        │                                                                  │    │
+│  │        └─ CommandContextManager.completeCommand(sshSessionId)         │    │
+│  │            ├── 标记状态为 COMPLETED                                       │    │
+│  │            ├── 从 activeCommands 移除                                   │    │
+│  │            ├── 推送: WsChatMessage("command_complete")                   │    │
+│  │            └── @Async triggerAiAnalysis(context)                        │    │
+│  └──────────────────────────────────────────────────────────────────────────┘    │
+└────────────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│  异步AI分析 (commandAnalysisExecutor 线程池)                                      │
+│  ┌──────────────────────────────────────────────────────────────────────────┐    │
+│  │  AiSshAssistantService.analyzeCommandOutput(command, output)            │    │
+│  │    │                                                                      │    │
+│  │    ├─ 构建分析 prompt:                                                     │    │
+│  │    │   "请分析以下命令的执行结果..."                                     │    │
+│  │    │   "## 命令: top -n 1"                                               │    │
+│  │    │   "## 输出: ..."                                                   │    │
+│  │    │                                                                      │    │
+│  │    ├─ 直接调用 AI 模型 (不使用 Assistant，避免循环工具调用)              │    │
+│  │    │   ├── SystemMessage: 系统提示词                                     │    │
+│  │    │   └── UserMessage: 分析 prompt                                     │    │
+│  │    │                                                                      │    │
+│  │    └─ 返回分析结果                                                        │    │
+│  │       "根据命令输出分析：CPU使用率为35%，内存使用率为60%，"                │    │
+│  │       "当前有3个用户进程，负载正常..."                                   │    │
+│  └──────────────────────────────────────────────────────────────────────────┘    │
+│    │                                                                      │    │
+│    └─ AiSshAssistantManager.sendReply(aiSessionId, analysis)               │
+│        └─ 推送: WsChatMessage("reply", 分析结果) → 前端                        │
+└────────────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│  延迟清理 (5秒后)                                                                 │
+│  └─ CommandContextManager.cleanup(commandId)                                   │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.5 WebSocket消息协议扩展
+
+| 消息类型 | 方向 | 说明 | 示例内容 |
+|---------|------|------|----------|
+| `command_output` | 服务端→客户端 | 命令实时输出 | SSH输出的原始内容 |
+| `command_complete` | 服务端→客户端 | 命令执行完成 | "命令执行完成" |
+| `command_timeout` | 服务端→客户端 | 命令执行超时 | "命令执行超时" |
+| `reply` | 服务端→客户端 | AI分析结果 | "根据命令输出分析：CPU使用率为35%..." |
+
+### 9.6 超时处理机制
+
+```
+CommandTimeoutScheduler (每1秒执行)
+├── 遍历所有 EXECUTING 状态的命令
+├── 检查: System.currentTimeMillis() - startTime > timeoutMillis
+├── 超时则:
+│   ├── 标记状态为 TIMEOUT
+│   ├── 从 activeCommands 移除
+│   ├── 推送: WsChatMessage("command_timeout")
+│   └── 仍然触发 AI 分析 (基于已收集的输出)
+└── 未超时则继续等待
+```
+
+### 9.7 新增文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `ai/command/CommandStatus.java` | 命令状态枚举（EXECUTING, COMPLETED, TIMEOUT, ERROR） |
+| `ai/command/CommandContext.java` | 命令上下文实体类 |
+| `ai/command/CommandContextManager.java` | 命令上下文管理器（核心） |
+| `ai/command/CommandTimeoutScheduler.java` | 命令超时定时任务 |
+| `ai/config/AsyncConfig.java` | 异步配置类（命令分析线程池） |
+
+### 9.8 修改文件清单
+
+| 文件 | 改动内容 |
+|------|----------|
+| `ai/context/SshSessionContext.java` | 新增 `aiSessionId` ThreadLocal 字段 |
+| `ai/service/AiSshAssistantService.java` | 新增 `analyzeCommandOutput()` 方法 |
+| `ai/tools/SshExecuteTool.java` | 集成命令上下文管理，发送时间戳标记 |
+| `websocket/SshWebSocketHandler.java` | 关联命令输出到上下文 |
+| `ai/websocket/manager/AiSshAssistantManager.java` | 新增 `sendReply()` 方法 |
+
+### 9.9 技术要点
+
+#### 1. ThreadLocal 上下文传递
+
+```java
+// AiSshAssistantService.sendMessage() 中设置
+SshSessionContext.setAiSessionId(binding.getAiSessionId());
+
+// SshExecuteTool.executeCommand() 中获取
+String aiSessionId = SshSessionContext.getAiSessionId();
+String sshSessionId = SshSessionContext.getSshSessionId();
+```
+
+#### 2. 命令标记格式
+
+```bash
+# 使用时间戳作为标记，避免冲突
+## COMMAND_START: 1738657200000 ##
+<command>
+## COMMAND_END: 1738657200000 ##
+```
+
+#### 3. 串行执行保证
+
+```java
+// 一个SSH会话同时只执行一个命令
+private final ConcurrentHashMap<String, String> activeCommands = new ConcurrentHashMap<>();
+// key: sshSessionId, value: commandId
+```
+
+#### 4. 异步分析配置
+
+```java
+@Configuration
+@EnableAsync
+public class AsyncConfig {
+    @Bean(name = "commandAnalysisExecutor")
+    public Executor getAsyncExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(5);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("cmd-analysis-");
+        executor.initialize();
+        return executor;
+    }
+}
+```
+
+### 9.10 验证检查项
+
+| 检查项 | 说明 |
+|--------|------|
+| 1. 编译验证 | `mvn clean compile` 成功 |
+| 2. 命令注册 | commandId 正确生成和存储 |
+| 3. 输出关联 | SSH输出正确关联到命令上下文 |
+| 4. 实时推送 | command_output 消息实时推送 |
+| 5. 完成检测 | COMMAND_END 标记正确检测 |
+| 6. 异步分析 | AI分析正确触发和执行 |
+| 7. 超时处理 | 超时命令正确处理 |
+| 8. 上下文清理 | 命令上下文正确清理 |
+
+### 9.11 开发提交记录
+
+| 提交 | 说明 | 日期 |
+|------|------|------|
+| bbeaf6c | 重构AI模块：场景分离与工具调用优化 | 2025-02-04 |
+| bc065c6 | 实现AI命令执行结果分析功能 | 2025-02-04 |
+
+---
+
+*文档更新时间：2025年2月4日*
+*最后更新：命令执行结果分析功能（V2.0）*
