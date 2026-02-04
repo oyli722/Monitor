@@ -48,8 +48,6 @@
 import { ref, computed } from 'vue'
 import { Plus, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import ChatInterface from '@/components/ai/ChatInterface.vue'
-import type { ChatMessage as ChatMessageType } from '@/api/ai'
 
 interface ChatSession {
   sessionId: string

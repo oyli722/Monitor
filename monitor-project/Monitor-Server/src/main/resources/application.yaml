@@ -54,3 +54,23 @@ jwt:
   expiration: 86400000
 server:
   port: 8080
+
+# OpenAI
+
+# AI助手配置
+ai:
+  monitor-agent:
+    default-model-name: ollama
+    default-model-temperature: 0.05
+
+
+langchain4j:
+  open-ai:
+    chat-model:
+      api-key: 0f3b43c2f839466aaf29392989e15c21.85rrkSKfWrJHlbhO
+      model-name: glm-4.7
+      base-url: https://open.bigmodel.cn/api/paas/v4/
+  ollama:
+    chat-model:
+      base-url: http://localhost:11434
+      model-name: gemma3:4b
