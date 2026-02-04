@@ -183,6 +183,18 @@ public class AiSshAssistantManager {
         return successCount;
     }
 
+    /**
+     * 发送AI回复消息（快捷方法）
+     *
+     * @param aiSessionId AI会话ID
+     * @param reply       回复内容
+     * @return true表示发送成功
+     */
+    public boolean sendReply(String aiSessionId, String reply) {
+        WsChatMessage message = WsChatMessage.reply(reply);
+        return sendToSession(aiSessionId, message);
+    }
+
     // ==================== 会话统计 ====================
 
     /**

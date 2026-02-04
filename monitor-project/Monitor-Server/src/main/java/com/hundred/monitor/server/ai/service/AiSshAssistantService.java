@@ -95,6 +95,7 @@ public class AiSshAssistantService {
         // 4. 设置ThreadLocal上下文（供SshExecuteTool使用）
         SshSessionContext.setSshSessionId(binding.getSshSessionId());
         SshSessionContext.setAgentId(binding.getAgentId());
+        SshSessionContext.setAiSessionId(binding.getAiSessionId());
 
         String aiReply;
         try {
@@ -390,5 +391,70 @@ public class AiSshAssistantService {
      */
     public boolean sessionExists(String aiSessionId) {
         return aiSshRedisUtils.bindingExists(aiSessionId);
+    }
+
+    // ==================== 命令输出分析 ====================
+
+    /**
+     * 分析命令输出
+     * 此方法由CommandContextManager异步调用，不经过工具调用
+     *
+     * @param command 执行的命令
+     * @param output  命令输出
+     * @return AI分析结果
+     */
+    public String analyzeCommandOutput(String command, String output) {
+        try {
+            // 构建分析提示词
+            String prompt = buildCommandAnalysisPrompt(command, output);
+
+            // 直接调用模型，不使用Assistant（避免循环工具调用）
+            ChatLanguageModel model = selectModel(defaultModelName);
+            List<dev.langchain4j.data.message.ChatMessage> messages = List.of(
+                    new SystemMessage(SystemPrompt.getSystemPrompt()),
+                    new UserMessage(prompt)
+            );
+
+            return model.chat(messages).aiMessage().text();
+
+        } catch (Exception e) {
+            log.error("命令输出分析失败: command={}", command, e);
+            return "命令已执行，但分析失败：" + e.getMessage();
+        }
+    }
+
+    /**
+     * 构建命令分析提示词
+     *
+     * @param command 执行的命令
+     * @param output  命令输出
+     * @return 分析提示词
+     */
+    private String buildCommandAnalysisPrompt(String command, String output) {
+        return String.format("""
+            请分析以下命令的执行结果：
+
+            ## 命令
+            ```
+            %s
+            ```
+
+            ## 输出
+            ```
+            %s
+            ```
+
+            请从以下几个方面进行分析：
+
+            1. **执行状态**：命令是否成功执行？有无错误？
+            2. **关键信息**：输出中的关键数据是什么？（如CPU使用率、内存占用、进程状态等）
+            3. **异常检查**：是否有警告、错误或异常情况？
+            4. **建议**：基于执行结果，有什么运维建议？
+
+            请用简洁清晰的语言总结分析结果。
+            """,
+            command,
+            output.length() > 5000 ? output.substring(0, 5000) + "..." : output
+        );
     }
 }

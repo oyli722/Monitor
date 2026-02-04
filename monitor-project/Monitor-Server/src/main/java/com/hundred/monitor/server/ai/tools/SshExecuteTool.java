@@ -1,9 +1,11 @@
 package com.hundred.monitor.server.ai.tools;
 
+import com.hundred.monitor.server.ai.command.CommandContextManager;
 import com.hundred.monitor.server.ai.context.SshSessionContext;
 import com.hundred.monitor.server.websocket.SshSession;
 import com.hundred.monitor.server.websocket.SshSessionManager;
 import dev.langchain4j.agent.tool.Tool;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -13,25 +15,35 @@ import java.nio.charset.StandardCharsets;
 /**
  * AI工具类，用于执行SSH命令
  * 从ThreadLocal上下文获取SSH会话信息
+ * 支持命令执行上下文管理和输出分析
  */
 @Slf4j
 @Component
 public class SshExecuteTool {
 
+    @Resource
+    private CommandContextManager commandContextManager;
+
     /**
      * 在SSH终端执行命令
      *
      * @param command 要执行的命令
-     * @return 执行结果
+     * @return 执行结果（包含命令ID）
      */
     @Tool("在SSH终端执行命令，用于执行Linux命令并查看结果")
     public String executeCommand(String command) {
-        // 1. 从ThreadLocal获取SSH会话ID
+        // 1. 从ThreadLocal获取上下文
         String sshSessionId = SshSessionContext.getSshSessionId();
+        String aiSessionId = SshSessionContext.getAiSessionId();
 
         if (sshSessionId == null || sshSessionId.isEmpty()) {
             log.warn("SSH会话ID未设置，无法执行命令");
             return "错误：无法获取SSH会话信息，请确保已连接到终端。";
+        }
+
+        if (aiSessionId == null || aiSessionId.isEmpty()) {
+            log.warn("AI会话ID未设置，无法执行命令");
+            return "错误：无法获取AI会话信息。";
         }
 
         // 2. 获取SSH会话
@@ -49,16 +61,30 @@ public class SshExecuteTool {
         }
 
         try {
-            // 4. 向SSH发送命令（添加换行符执行）
+            // 4. 注册命令上下文
+            String commandId = commandContextManager.registerCommand(aiSessionId, sshSessionId, command);
+
+            // 5. 生成时间戳作为命令标记
+            long timestamp = System.currentTimeMillis();
+
+            // 6. 发送命令开始标记
+            String startMarker = "\n## COMMAND_START: " + timestamp + " ##\n";
+            outputStream.write(startMarker.getBytes(StandardCharsets.UTF_8));
+
+            // 7. 发送实际命令
             String commandWithNewline = command + "\n";
             outputStream.write(commandWithNewline.getBytes(StandardCharsets.UTF_8));
             outputStream.flush();
 
-            log.info("SSH命令已发送: sshSessionId={}, command={}", sshSessionId, command);
+            // 8. 发送命令结束标记（通过echo输出）
+            String endMarker = "echo '## COMMAND_END: " + timestamp + " ##'\n";
+            outputStream.write(endMarker.getBytes(StandardCharsets.UTF_8));
+            outputStream.flush();
 
-            // TODO: 同步等待并返回命令输出结果
-            // 当前实现：仅发送命令，结果会通过WebSocket异步推送到前端
-            return "命令已发送到终端，请查看终端输出结果。";
+            log.info("SSH命令已发送: commandId={}, sshSessionId={}, command={}",
+                    commandId, sshSessionId, command);
+
+            return "正在执行命令: " + command + " (命令ID: " + commandId + ")";
 
         } catch (Exception e) {
             log.error("执行SSH命令失败: sshSessionId={}, command={}", sshSessionId, command, e);

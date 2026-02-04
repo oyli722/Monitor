@@ -1,5 +1,7 @@
 package com.hundred.monitor.server.websocket;
 
+import com.hundred.monitor.server.ai.command.CommandContextManager;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.BinaryMessage;
@@ -18,12 +20,16 @@ import java.util.Objects;
 /**
  * SSH WebSocket处理器
  * 处理前端SSH终端的WebSocket连接
+ * 支持命令输出关联到AI命令上下文
  */
 @Slf4j
 @Component
 public class SshWebSocketHandler extends TextWebSocketHandler {
 
     private final SshSessionManager sessionManager = SshSessionManager.getInstance();
+
+    @Resource
+    private CommandContextManager commandContextManager;
 
     @Override
     protected void handleTextMessage(WebSocketSession webSocketSession, TextMessage message) {
@@ -147,8 +153,18 @@ public class SshWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * 通过WebSocket发送SSH输出
+     * 同时检查命令结束标记，关联到AI命令上下文
      */
     private void sendToWebSocket(SshSession sshSession, String output) {
+        // 1. 检查是否有关联的AI命令，将输出关联到命令上下文
+        commandContextManager.appendOutput(sshSession.getSessionId(), output);
+
+        // 2. 检测命令结束标记
+        if (output.contains("COMMAND_END:")) {
+            commandContextManager.completeCommand(sshSession.getSessionId());
+        }
+
+        // 3. 将输出发送给所有WebSocket连接（前端显示）
         for (WebSocketSession wsSession : sshSession.getWebSocketSessions().values()) {
             if (wsSession.isOpen()) {
                 try {

@@ -8,6 +8,7 @@ public class SshSessionContext {
 
     private static final ThreadLocal<String> SSH_SESSION_ID = new ThreadLocal<>();
     private static final ThreadLocal<String> AGENT_ID = new ThreadLocal<>();
+    private static final ThreadLocal<String> AI_SESSION_ID = new ThreadLocal<>();
 
     /**
      * 设置当前线程的SSH会话ID
@@ -46,12 +47,31 @@ public class SshSessionContext {
     }
 
     /**
+     * 设置当前线程的AI会话ID
+     *
+     * @param aiSessionId AI会话ID
+     */
+    public static void setAiSessionId(String aiSessionId) {
+        AI_SESSION_ID.set(aiSessionId);
+    }
+
+    /**
+     * 获取当前线程的AI会话ID
+     *
+     * @return AI会话ID，未设置返回null
+     */
+    public static String getAiSessionId() {
+        return AI_SESSION_ID.get();
+    }
+
+    /**
      * 清空当前线程的上下文
      * 应在请求处理完成后调用，防止ThreadLocal内存泄漏
      */
     public static void clear() {
         SSH_SESSION_ID.remove();
         AGENT_ID.remove();
+        AI_SESSION_ID.remove();
     }
 
     /**
