@@ -1240,5 +1240,593 @@ aiSshAssistantManager.sendReply(aiSessionId, analysis);
 
 ---
 
-*文档更新时间：2025年2月5日*
-*最后更新：测试开发（V2.1）*
+## 十一、前端开发完成（V2.2）
+
+### 11.1 开发背景
+
+在完成后端开发和测试后，需要实现前端AI助手功能，使用户能够通过图形界面与AI助手交互。
+
+### 11.2 技术方案
+
+#### UI集成方案
+
+| 方案 | 描述 | 选择 |
+|------|------|------|
+| A | 在HostDetailDialog添加AI按钮，弹出对话框 | ✅ 采用 |
+| B | 独立的AI助手页面 | ❌ |
+| C | SSH终端内嵌AI面板 | ❌ |
+| D | SSH终端对话框旁添加AI按钮，非模态对话框 | ✅ 采用 |
+
+**最终方案**：在SSH终端对话框（`SshTerminalDialog.vue`）中添加"AI助手"按钮，点击后打开非模态对话框（`AiAssistantDialog.vue`），用户可同时操作SSH终端和AI助手。
+
+#### 组件架构
+
+```
+src/
+├── types/
+│   └── ai.ts                 # AI类型定义
+├── api/
+│   └── ai.ts                 # AI API接口
+├── components/
+│   └── ai/
+│       ├── ChatInterface.vue      # 聊天主界面
+│       ├── ChatMessage.vue        # 单条消息组件
+│       ├── ChatInput.vue          # 消息输入组件
+│       ├── MarkdownRenderer.vue   # Markdown渲染组件
+│       └── AiAssistantDialog.vue  # AI助手对话框
+├── composables/
+│   └── useAiChat.ts            # AI聊天状态管理
+```
+
+### 11.3 开发阶段
+
+#### 阶段1: 基础设施
+
+| 文件 | 功能 |
+|------|------|
+| `src/types/ai.ts` | AI类型定义（ChatMessage、WebSocket消息等） |
+| `src/api/ai.ts` | AI API接口（connect、disconnect等） |
+
+#### 阶段2: 基础组件
+
+| 组件 | 功能 |
+|------|------|
+| `MarkdownRenderer.vue` | Markdown渲染 + 代码语法高亮（marked + highlight.js） |
+| `ChatMessage.vue` | 单条消息显示（用户/助手/系统角色） |
+| `ChatInput.vue` | 消息输入框（Ctrl+Enter发送） |
+| `ChatInterface.vue` | 聊天主界面容器 |
+
+#### 阶段3: 集成组件
+
+| 组件 | 功能 |
+|------|------|
+| `AiAssistantDialog.vue` | AI助手对话框容器（非模态、可拖动） |
+
+#### 阶段4: 页面集成
+
+| 修改 | 说明 |
+|------|------|
+| `SshTerminalDialog.vue` | 添加AI助手按钮和对话框集成 |
+
+#### 阶段5: 状态管理
+
+| 文件 | 功能 |
+|------|------|
+| `useAiChat.ts` | WebSocket连接管理、消息收发、状态管理 |
+
+### 11.4 WebSocket通信
+
+#### URL配置
+
+```typescript
+// 环境变量配置
+VITE_WS_BASE_URL=ws://localhost:8080
+
+// WebSocket URL构建
+buildWsUrl(aiSessionId) => `${VITE_WS_BASE_URL}/ws/ai/ssh-assistant/${aiSessionId}`
+```
+
+#### 消息协议
+
+| 类型 | 方向 | 说明 |
+|------|------|------|
+| `chat` | 客户端→服务端 | 用户聊天消息 |
+| `reply` | 服务端→客户端 | AI回复（含isComplete字段） |
+| `command_output` | 服务端→客户端 | 命令实时输出 |
+| `command_complete` | 服务端→客户端 | 命令执行完成（含exitCode） |
+| `error` | 服务端→客户端 | 错误通知 |
+| `ping` | 双向 | 心跳保活 |
+
+### 11.5 问题修复记录
+
+| 问题编号 | 问题描述 | 原因 | 修复方案 |
+|---------|---------|------|----------|
+| FE-001 | API 404错误 | 使用`axios`而非`request` | 改用`request`统一baseURL |
+| FE-002 | WebSocket连接失败 | URL使用前端地址（5173） | 使用`VITE_WS_BASE_URL`环境变量 |
+| FE-003 | 加载状态不消失 | 流式消息更新逻辑错误 | 修复`handleAiMessage`，正确处理`isComplete` |
+| FE-004 | disconnect接口401 | HTTP方法不匹配（前端POST，后端DELETE） | 前端改用`request.delete` |
+| FE-005 | marked v17 API变更 | `highlight`选项已废弃 | 使用自定义renderer |
+
+### 11.6 创建文件清单
+
+```
+Monitor-Web/src/
+
+├── types/ai.ts                          ✅ AI类型定义
+├── api/ai.ts                            ✅ AI API接口
+├── composables/useAiChat.ts              ✅ WebSocket状态管理
+├── components/ai/
+│   ├── ChatInterface.vue               ✅ 聊天主界面
+│   ├── ChatMessage.vue                 ✅ 单条消息组件
+│   ├── ChatInput.vue                   ✅ 消息输入框
+│   ├── MarkdownRenderer.vue            ✅ Markdown渲染
+│   └── AiAssistantDialog.vue           ✅ AI助手对话框
+└── components/monitor/
+    └── SshTerminalDialog.vue           🔧 添加AI助手按钮
+```
+
+### 11.7 技术要点
+
+#### 1. 非模态对话框配置
+
+```vue
+<el-dialog
+  :modal="false"        ← 不显示遮罩
+  append-to-body        ← 挂载到body
+  draggable             ← 可拖动
+>
+```
+
+#### 2. Markdown代码高亮
+
+```typescript
+import { marked } from 'marked'
+import hljs from 'highlight.js'
+
+// 使用自定义renderer（marked v17+）
+marked.use({
+  renderer: {
+    code(this: any, code: string, language: string | undefined) {
+      const lang = language || ''
+      if (hljs.getLanguage(lang)) {
+        const highlighted = hljs.highlight(code, { language: lang }).value
+        return `<pre><code class="hljs language-${lang}">${highlighted}</code></pre>`
+      }
+      const highlighted = hljs.highlightAuto(code).value
+      return `<pre><code class="hljs">${highlighted}</code></pre>`
+    }
+  }
+})
+```
+
+#### 3. 流式消息处理
+
+```typescript
+// 更新现有消息而不是创建新消息
+if (currentStreamingMessageId) {
+  const existingMessage = messages.value.find(m => m.id === currentStreamingMessageId)
+  if (existingMessage && !message.isStreaming) {
+    existingMessage.content = message.content
+    existingMessage.isStreaming = false
+    isProcessing.value = false
+    return
+  }
+}
+```
+
+### 11.8 测试场景
+
+| 场景 | 操作 | 预期结果 |
+|------|------|----------|
+| 连接AI助手 | 打开SSH终端 → 点击"AI助手"按钮 | WebSocket连接成功，状态栏显示"已连接" |
+| 发送消息 | 输入"查看当前目录文件" | AI回复包含完整分析 |
+| 并行操作 | AI执行命令时手动输入SSH命令 | 两个窗口独立操作 |
+| 关闭助手 | 点击对话框关闭按钮 | WebSocket断开，不影响SSH终端 |
+
+---
+
+## 十二、已知问题（未解决）
+
+### 问题记录
+
+| 问题编号 | 问题描述 | 状态 | 复现情况 |
+|---------|---------|------|----------|
+| ISSUE-001 | AI回复内容显示不一致 | ⚠️ 偶发 | **未复现** |
+
+#### ISSUE-001 详细描述
+
+**问题现象**：
+- 前端显示：简短的"命令执行反馈"消息
+- 后端日志：完整的分析内容（包含关键步骤、结果、结论）
+
+**复现情况**：
+- 在后续测试中未能复现
+- 前端能够正确显示完整的AI回复内容
+
+**可能原因**：
+1. 可能是偶发的数据传输问题
+2. 可能是之前版本的前端处理逻辑bug（已修复）
+3. 可能是网络或临时性因素
+
+**处理建议**：
+- 继续观察是否能复现
+- 如果能稳定复现，需要收集更多日志信息（前端console.log + 后端日志）
+- 当前版本功能正常，暂不处理
+
+---
+
+*文档更新时间：2026年2月5日*
+*最后更新：侧边栏AI助手开发完成（V2.3）*
+
+---
+
+## 十三、侧边栏AI助手开发完成（V2.3）
+
+### 13.1 开发背景
+
+在完成主机详情页AI助手（SSH绑定场景）后，需要实现侧边栏独立AI助手功能，为用户提供通用AI对话能力，不依赖SSH连接。
+
+### 13.2 功能定位
+
+| 特性 | 主机详情页AI助手 | 侧边栏AI助手 |
+|------|-----------------|-------------|
+| **位置** | 主机详情页 → SSH终端旁 | 全局侧边栏菜单 |
+| **路由** | 无（嵌入对话框） | `/ai` |
+| **通信方式** | WebSocket长连接 | HTTP REST API |
+| **会话类型** | 单会话（与SSH绑定） | 多会话管理 |
+| **主机关联** | 必需 | 可选 |
+| **SSH命令执行** | 支持 | 不支持 |
+| **Controller** | AiSshAssistantController | ChatController |
+| **Service** | AiSshAssistantService | ChatService |
+| **Redis前缀** | `ai:ssh:*` | `assistant:session:*` |
+| **开发状态** | ✅ 已完成 | ✅ 已完成 |
+
+### 13.3 技术方案
+
+#### 13.3.1 UI设计
+
+参考主流AI对话应用（ChatGPT、Claude）的设计模式：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  侧边栏面板 (280px)     │    主聊天区域 (自适应)              │
+│  ┌──────────────────┐  │  ┌──────────────────────────────┐  │
+│  │ [新对话] 按钮     │  │  │  消息列表滚动区               │  │
+│  ├──────────────────┤  │  │  ┌────────────────────────┐  │  │
+│  │ 会话列表          │  │  │  │ 用户: 查看磁盘使用     │  │  │
+│  │ ├─ 对话1         │  │  │  ├────────────────────────┤  │  │
+│  │ ├─ 对话2 (active)│  │  │  │ AI: 磁盘使用情况如下... │  │  │
+│  │ └─ ...           │  │  │  └────────────────────────┘  │  │
+│  │                  │  │  │  ┌────────────────────────┐  │  │
+│  │ [会话1] 2分钟前  │  │  │  │ 用户: 内存使用率？      │  │  │
+│  │ [×删除]          │  │  │  └────────────────────────┘  │  │
+│  └──────────────────┘  │  │                              │  │
+│                        │  ├──────────────────────────────┤  │
+│                        │  │  输入框 + 发送按钮             │  │
+│                        │  └──────────────────────────────┘  │
+│                        │  ────────────────────────────────  │
+│                        │  无会话时显示欢迎页               │
+│                        │  + 直接输入消息开始新对话          │
+│  └────────────────────┘  └──────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 13.3.2 组件架构
+
+```
+src/
+├── views/ai/
+│   └── SidebarAssistant.vue          ✅ 侧边栏AI助手主页面
+├── types/ai.ts                        ✅ 类型定义（扩展）
+├── api/ai.ts                          ✅ API客户端（扩展）
+├── components/ai/
+│   ├── ChatInterface.vue              ✅ 复用：聊天主界面
+│   ├── ChatMessage.vue                ✅ 复用：消息组件
+│   ├── ChatInput.vue                  ✅ 复用：输入组件
+│   └── MarkdownRenderer.vue           ✅ 复用：Markdown渲染
+└── router/index.ts                    ✅ 路由配置
+```
+
+### 13.4 API接口（复用ChatController）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/chat/sessions` | 创建新会话 |
+| GET | `/api/chat/sessions` | 获取所有会话 |
+| GET | `/api/chat/sessions/{sessionId}` | 获取会话详情 |
+| DELETE | `/api/chat/sessions/{sessionId}` | 删除会话 |
+| GET | `/api/chat/sessions/{sessionId}/messages` | 获取消息历史 |
+| POST | `/api/chat/messages` | 发送消息 |
+| DELETE | `/api/chat/sessions/{sessionId}/messages` | 清空消息 |
+| POST | `/api/chat/sessions/{sessionId}/link` | 关联主机 |
+
+### 13.5 开发阶段
+
+#### 阶段1: 扩展类型定义
+
+**文件**: `src/types/ai.ts`
+
+**新增类型**:
+```typescript
+// 会话信息
+export interface SessionInfo {
+  sessionId: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messageCount: number
+  linkedAgentId?: string
+}
+
+// 创建会话请求/响应
+export interface CreateSessionRequest {
+  firstMessage: string
+  agentId?: string
+}
+
+export interface CreateSessionResponse {
+  sessionId: string
+  title: string
+}
+
+// 发送消息请求/响应
+export interface SendMessageRequest {
+  sessionId: string
+  message: string
+  modelName?: string
+}
+
+export interface ChatResponse {
+  sessionId: string
+  reply: string
+  message: ChatMessageResponse
+}
+```
+
+#### 阶段2: 扩展API客户端
+
+**文件**: `src/api/ai.ts`
+
+**新增类**: `ChatSessionAPI`
+
+```typescript
+export class ChatSessionAPI {
+  static async createSession(data: CreateSessionRequest): Promise<CreateSessionResponse>
+  static async getSessions(): Promise<SessionInfo[]>
+  static async getSession(sessionId: string): Promise<SessionInfo>
+  static async deleteSession(sessionId: string): Promise<void>
+  static async getMessages(sessionId: string): Promise<ChatMessageResponse[]>
+  static async sendMessage(data: SendMessageRequest): Promise<ChatResponse>
+  static async clearMessages(sessionId: string): Promise<void>
+  static async linkAgent(sessionId: string, agentId: string): Promise<void>
+}
+```
+
+#### 阶段3: 创建主页面组件
+
+**文件**: `src/views/ai/SidebarAssistant.vue`
+
+**功能模块**:
+1. **左侧会话面板** (280px)
+   - 标题栏 + "新对话"按钮
+   - 会话列表（支持切换、删除）
+   - 相对时间显示（刚刚、X分钟前、X天前）
+
+2. **右侧聊天区域** (自适应)
+   - 欢迎视图（无会话时）
+   - 聊天视图（有会话时）
+   - 消息输入框
+
+3. **状态管理**
+   - `sessions`: 会话列表
+   - `currentSessionId`: 当前会话ID
+   - `messages`: 消息列表
+   - `isLoading`: 加载状态
+
+#### 阶段4: 添加路由配置
+
+**文件**: `src/router/index.ts`
+
+```typescript
+{
+  path: 'ai',
+  name: 'SidebarAssistant',
+  component: SidebarAssistant,
+  meta: { title: 'AI对话', icon: '🤖' },
+}
+```
+
+### 13.6 核心功能实现
+
+#### 13.6.1 会话管理
+
+```typescript
+// 加载会话列表
+const loadSessions = async () => {
+  const data = await getChatSessions()
+  sessions.value = data
+}
+
+// 新建对话（清空状态，准备创建）
+const handleNewChat = () => {
+  currentSessionId.value = ''
+  messages.value = []
+  currentSession.value = null
+  ElMessage.info('已创建新对话，请输入消息开始')
+}
+
+// 切换会话
+const handleSelectSession = async (sessionId: string) => {
+  currentSessionId.value = sessionId
+  await loadMessages(sessionId)
+}
+
+// 删除会话
+const handleDeleteSession = async (sessionId: string) => {
+  await deleteChatSession(sessionId)
+  await loadSessions()
+  if (sessionId === currentSessionId.value) {
+    currentSessionId.value = ''
+    messages.value = []
+  }
+}
+```
+
+#### 13.6.2 消息发送
+
+```typescript
+const handleSendMessage = async (content: string) => {
+  // 如果没有会话ID，先创建会话
+  if (!currentSessionId.value) {
+    const result = await createChatSession({ firstMessage: content })
+    currentSessionId.value = result.sessionId
+    await loadSessions()
+  }
+
+  // 添加用户消息
+  messages.value.push({
+    id: generateMessageId(),
+    role: 'user',
+    content,
+    timestamp: Date.now()
+  })
+
+  // 发送消息并获取AI回复
+  const response = await sendChatMessage({
+    sessionId: currentSessionId.value,
+    message: content
+  })
+
+  // 添加AI回复
+  messages.value.push({
+    id: generateMessageId(),
+    role: 'assistant',
+    content: response.reply,
+    timestamp: response.message.timestamp
+  })
+
+  // 刷新会话列表（更新时间）
+  await loadSessions()
+}
+```
+
+#### 13.6.3 相对时间格式化
+
+```typescript
+const formatTime = (timestamp: number): string => {
+  const diff = Date.now() - timestamp
+  if (diff < 3600000) {
+    const minutes = Math.floor(diff / 60000)
+    return minutes === 0 ? '刚刚' : `${minutes}分钟前`
+  }
+  if (diff < 86400000) {
+    return `${Math.floor(diff / 3600000)}小时前`
+  }
+  if (diff < 604800000) {
+    return `${Math.floor(diff / 86400000)}天前`
+  }
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
+```
+
+### 13.7 问题修复记录
+
+| 问题编号 | 问题描述 | 原因 | 修复方案 |
+|---------|---------|------|----------|
+| FE-006 | ChatMessage组件与类型名称冲突 | 导入`ChatMessage`组件和`ChatMessage`类型同名 | 类型别名：`ChatMessage as ChatMessageType` |
+| FE-007 | 欢迎/新对话"按钮无反应 | 按钮在欢迎视图中是多余的（已在新对话状态） | 移除按钮，直接显示输入框 |
+
+### 13.8 创建文件清单
+
+```
+Monitor-Web/src/
+
+├── views/ai/
+│   └── SidebarAssistant.vue           ✅ 侧边栏AI助手主页面（350行）
+├── types/ai.ts                        ✅ 扩展类型定义
+├── api/ai.ts                          ✅ 扩展API客户端
+├── components/ai/
+│   ├── ChatMessage.vue                ✅ 扩展：添加showRole、showAvatar属性
+│   ├── ChatInterface.vue              ✅ 复用
+│   ├── ChatInput.vue                  ✅ 复用
+│   └── MarkdownRenderer.vue           ✅ 复用
+└── router/index.ts                    ✅ 添加/ai路由
+```
+
+### 13.9 技术要点
+
+#### 1. 组件复用策略
+
+| 组件 | SSH绑定AI助手 | 侧边栏AI助手 |
+|------|-------------|-------------|
+| `ChatMessage.vue` | ✅ 复用 | ✅ 复用 |
+| `ChatInput.vue` | ✅ 复用 | ✅ 复用 |
+| `MarkdownRenderer.vue` | ✅ 复用 | ✅ 复用 |
+| `ChatInterface.vue` | ✅ 复用 | ❌ 未使用 |
+| `AiAssistantDialog.vue` | ✅ 独有 | ❌ 未使用 |
+| `SidebarAssistant.vue` | ❌ 未使用 | ✅ 独有 |
+
+#### 2. 会话创建时机
+
+**策略**: 延迟创建会话
+
+```typescript
+// 用户输入第一条消息时才创建会话
+if (!currentSessionId.value) {
+  const result = await createChatSession({ firstMessage: content })
+  currentSessionId.value = result.sessionId
+}
+```
+
+**优点**:
+- 避免空会话
+- 会话标题由首条消息自动生成
+- 减少无效会话数据
+
+#### 3. 欢迎视图设计
+
+**初始设计问题**: 欢迎/新对话"按钮无反应
+
+**优化方案**:
+```vue
+<!-- 欢迎视图直接显示输入框 -->
+<div class="welcome-view">
+  <div class="welcome-content">
+    <h2>AI智能助手</h2>
+    <p>点击上方"新对话"按钮或选择已有对话开始聊天</p>
+    <div class="welcome-tips">
+      <p>💡 提示：直接在下方输入框中输入消息即可开始新对话</p>
+    </div>
+  </div>
+  <!-- 始终显示输入框 -->
+  <ChatInput @send="handleSendMessage" />
+</div>
+```
+
+### 13.10 测试场景
+
+| 场景 | 操作 | 预期结果 |
+|------|------|----------|
+| 进入页面 | 点击侧边栏"AI对话"菜单 | 显示欢迎视图 + 输入框 |
+| 开始新对话 | 直接输入消息发送 | 自动创建会话，显示回复 |
+| 切换会话 | 点击左侧会话列表项 | 加载该会话的历史消息 |
+| 删除会话 | 点击会话的删除按钮 | 确认后删除，若为当前会话则清空聊天区 |
+| 多会话管理 | 创建多个会话 | 左侧列表显示所有会话，支持切换 |
+| 时间显示 | 查看会话列表 | 显示相对时间（刚刚、X分钟前） |
+
+### 13.11 开发提交记录
+
+| 提交 | 说明 | 日期 |
+|------|------|------|
+| - | 侧边栏AI助手开发完成 | 2026-02-05 |
+
+---
+
+## 十四、功能状态总览
+
+| 功能模块 | 后端状态 | 前端状态 | 备注 |
+|---------|---------|---------|------|
+| 全局侧边栏AI助手 | ✅ ChatController | ✅ SidebarAssistant.vue | HTTP REST API |
+| 主机详情页AI助手 | ✅ AiSshAssistantController | ✅ AiAssistantDialog.vue | WebSocket + SSH绑定 |
+
+---

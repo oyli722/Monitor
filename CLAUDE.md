@@ -137,6 +137,55 @@ npx playwright install  # First time only - installs browsers
 - **SshSessionManager**: Singleton managing active SSH sessions
 - **xterm.js**: Frontend terminal emulation with `@xterm/addon-fit`
 
+### AI Assistant Integration (LangChain4j)
+
+**Two Distinct Scenarios:**
+
+1. **Global Chat (Sidebar)** - Direct model injection
+   - Uses `@Primary OpenAiChatModel defaultOpenAiChatModel()`
+   - No tool calling
+   - Context stored in Redis via `ChatSessionRedisUtils`
+   - HTTP REST API communication
+   - Frontend: `Monitor-Web/src/views/ai/` chat interface
+
+2. **Host Detail SSH Assistant** - With tool calling
+   - Uses `@Primary Assistant defaultAssistant()` with `SshExecuteTool`
+   - Tool can execute SSH commands on bound host
+   - **ThreadLocal context** (`SshSessionContext`) carries: aiSessionId, sshSessionId, agentId
+   - WebSocket-based communication
+   - Command output tracking via `CommandContextManager`
+   - Location: `Monitor-Server/src/main/java/com/hundred/monitor/server/ai/`
+
+**SSH Assistant Tool Calling Flow:**
+```
+User message → AiSshAssistantService.sendMessage()
+    → Sets ThreadLocal context (aiSessionId, sshSessionId, agentId)
+    → AI model with tools
+    → SshExecuteTool.executeCommand() - fetches context from ThreadLocal
+    → Sends command to SSH session with markers:
+        ## COMMAND_START: {timestamp} ##
+        {command}
+        ## COMMAND_END: {timestamp} ##
+    → SshWebSocketHandler captures output
+    → CommandContextManager accumulates output
+    → On END marker: triggers async AI analysis
+    → AiSshAssistantService.analyzeCommandOutput()
+    → Analysis result saved to Redis and sent via WebSocket
+```
+
+**Command Context Management:**
+- `CommandContext` entity: commandId, aiSessionId, sshSessionId, command, output (StringBuilder), status
+- `CommandContextManager`: Singleton managing active commands
+- `CommandTimeoutScheduler`: Scheduled task checking for command timeouts (1s interval)
+- Async analysis thread pool: `AsyncConfig.commandAnalysisExecutor` (corePoolSize=2, maxPoolSize=5)
+
+**Model Configuration:**
+- **GLM-4.7**: Via BigModel API (`https://open.bigmodel.cn/api/paas/v4/`)
+- **Ollama**: Local models (default: `qwen2.5:7b` at `http://localhost:11434/v1`)
+- **Important**: Ollama baseUrl MUST include `/v1` for OpenAI-compatible endpoint
+- **Default model**: Set via `ai.monitor-agent.default-model-name` property (default: `ollama`)
+- Models must support function calling for SSH assistant tool use (qwen2.5:7b recommended)
+
 ### Data Flow
 ```
 Agent (OSHI) → CollectService → ReportService → Server API → MySQL
@@ -170,6 +219,8 @@ Located in `Monitor-Server/src/main/resources/sql/init.sql`
   - `langchain4j.open-ai.chat-model.api-key`: AI model API key
   - `langchain4j.open-ai.chat-model.base-url`: Model API endpoint
   - `langchain4j.open-ai.chat-model.model-name`: Model name (e.g., glm-4.7)
+  - `langchain4j.ollama.chat-model.base-url`: Must be `http://localhost:11434/v1` (include /v1)
+  - `langchain4j.ollama.chat-model.model-name`: Model name (e.g., qwen2.5:7b for tool support)
   - `ai.monitor-agent.default-model-name`: Default AI model selection (`ollama` or `open-ai`)
 - **monitor-project/Monitor-Web/.env.development** - Dev environment (API: http://localhost:8080/api)
 - **monitor-project/Monitor-Server/src/main/resources/sql/init.sql** - Database schema initialization
@@ -197,14 +248,8 @@ Located in `Monitor-Server/src/main/resources/sql/init.sql`
 - `WS /ws/ssh/terminal/{sessionId}` - SSH terminal WebSocket
 
 ### AI Assistant
-- Frontend: `monitor-project/Monitor-Web/src/views/ai/` - User chat interface
-- Backend: `monitor-project/Monitor-Server/src/main/java/com/hundred/monitor/server/ai/` - LangChain4j integration
-- Supports multiple models:
-  - GLM-4.7 via BigModel API (`https://open.bigmodel.cn/api/paas/v4/`)
-  - Ollama local models (default: `gemma3:4b` at `http://localhost:11434`)
-- Natural language interface for host registration, SSH operations, command execution
-- Context-aware multi-turn conversations
-- Configuration classes in `Monitor-Server/src/main/java/com/hundred/monitor/server/ai/config/`
+- **Global Chat**: `POST /api/ai/chat`, `GET /api/ai/sessions`
+- **SSH Assistant**: `POST /api/ai/ssh-assistant/connect`, `WS /ws/ai/ssh-assistant/{aiSessionId}`
 
 ## Package Structure Reference
 
@@ -219,7 +264,14 @@ Located in `Monitor-Server/src/main/resources/sql/init.sql`
 - `security/` - JwtTokenProvider, JwtAuthenticationFilter, SecurityConfig
 - `websocket/` - SshWebSocketHandler, SshSessionManager (SSH proxy)
 - `ai/` - AI assistant integration (LangChain4j services)
-  - `config/` - AgentAssistantConfig, property classes for AI configuration
+  - `command/` - CommandContext, CommandStatus, CommandContextManager, CommandTimeoutScheduler
+  - `config/` - AgentAssistantConfig, AsyncConfig, AI model properties
+  - `context/` - SshSessionContext (ThreadLocal context holder)
+  - `entity/` - Assistant interface, SshAssistantMessage, SshSessionBinding, SystemPrompt
+  - `service/` - AiSshAssistantService (main service), ChatService (global chat)
+  - `tools/` - SshExecuteTool (SSH command execution with @Tool annotation)
+  - `utils/` - TerminalChatRedisUtils, ModelRedisUtils
+  - `websocket/` - AiSshAssistantHandler, AiSshAssistantManager, WsChatMessage
 - `model/entity/` - User, Agent, AgentMetrics, SshCredential (JPA/MyBatis Plus)
 
 ### Monitor-Web
@@ -248,31 +300,6 @@ Located in `Monitor-Server/src/main/resources/sql/init.sql`
 
 **Node.js Version:** ^20.19.0 || >=22.12.0 (specified in package.json engines)
 
-## AI Assistant Backend Configuration
-
-The AI assistant is configured via `application.yaml` under the `langchain4j` section:
-
-```yaml
-langchain4j:
-  open-ai:
-    chat-model:
-      api-key: <your-api-key>
-      model-name: glm-4.7
-      base-url: https://open.bigmodel.cn/api/paas/v4/
-  ollama:
-    chat-model:
-      base-url: http://localhost:11434
-      model-name: gemma3:4b
-```
-
-**Default Model:** Set via `ai.monitor-agent.default-model-name` property (default: `ollama`)
-
-**Key Classes:**
-- `AgentAssistantConfig` - Main configuration class for AI assistant
-- `AgentChatModelAssistantProperty` - Chat model properties
-- `AgentOllamaChatModelAssistantProperty` - Ollama-specific properties
-- `MonitorAgentCreateProperty` - Agent creation properties
-
 ## Development Constraints
 
 This project follows specific development rules defined in `项目文档/AI开发约束.md`:
@@ -284,3 +311,13 @@ This project follows specific development rules defined in `项目文档/AI开�
 5. **Version Control**: Only commit when explicitly requested by user
 6. **Configuration Separation**: Keep config separate from business logic
 7. **Backward Compatibility**: Consider compatibility for API/interface changes
+
+## Known Issues & Considerations
+
+- **Circular Dependency**: CommandContextManager → AiSshAssistantService → CommandContextManager
+  - Resolved with `@Lazy` annotation on aiSshAssistantService in CommandContextManager
+- **HTTP Client Conflict**: LangChain4j detects multiple HTTP client implementations
+  - Resolved by explicitly specifying `.httpClientBuilder(new JdkHttpClientBuilder())` in AgentAssistantConfig
+- **Ollama baseUrl**: Must include `/v1` path for OpenAI-compatible endpoint
+- **Model Selection**: Only models supporting function calling work with SSH assistant (e.g., qwen2.5:7b, not gemma3:4b)
+- **AI Analysis Results**: Must be saved to Redis AND sent via WebSocket for complete functionality

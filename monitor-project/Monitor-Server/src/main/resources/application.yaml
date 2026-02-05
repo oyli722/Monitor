@@ -76,4 +76,4 @@ langchain4j:
   ollama:
     chat-model:
       base-url: http://localhost:11434/v1
-      model-name: gemma3:4b
+      model-name: qwen2.5:7b #gemma3:4b 不能调用工具，切换模型

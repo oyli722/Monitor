@@ -18,7 +18,7 @@ const ForgetPassword = () => import('@/views/auth/ForgetPassword.vue')
 // 主功能页面
 const Dashboard = () => import('@/views/dashboard/Dashboard.vue')
 const HostMonitor = () => import('@/views/host/HostMonitor.vue')
-const AIAssistant = () => import('@/views/ai/AIAssistant.vue')
+const SidebarAssistant = () => import('@/views/ai/SidebarAssistant.vue')
 
 // 系统管理页面（仅管理员）
 const UserManagement = () => import('@/views/admin/UserManagement.vue')
@@ -49,9 +49,9 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'ai',
-        name: 'AIAssistant',
-        component: AIAssistant,
-        meta: { title: 'AI助手', icon: '🤖' },
+        name: 'SidebarAssistant',
+        component: SidebarAssistant,
+        meta: { title: 'AI对话', icon: '🤖' },
       },
       {
         path: 'admin',

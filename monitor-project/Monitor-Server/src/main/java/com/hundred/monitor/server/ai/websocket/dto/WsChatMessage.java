@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 public class WsChatMessage {
 
     /**
-     * 消息类型：chat, reply, error, ping
+     * 消息类型：chat, reply, error, ping, command_output, command_complete
      */
     private String type;
 
@@ -35,6 +35,17 @@ public class WsChatMessage {
     private String errorCode;
 
     /**
+     * 回复是否完成（仅type=reply时使用）
+     * true: 消息完整，false: 流式消息中的片段
+     */
+    private Boolean isComplete;
+
+    /**
+     * 退出码（仅type=command_complete时使用）
+     */
+    private Integer exitCode;
+
+    /**
      * 创建聊天消息
      */
     public static WsChatMessage chat(String content) {
@@ -46,13 +57,21 @@ public class WsChatMessage {
     }
 
     /**
-     * 创建回复消息
+     * 创建回复消息（默认完整消息）
      */
     public static WsChatMessage reply(String content) {
+        return reply(content, true);
+    }
+
+    /**
+     * 创建回复消息（指定是否完整）
+     */
+    public static WsChatMessage reply(String content, boolean isComplete) {
         return WsChatMessage.builder()
                 .type("reply")
                 .content(content)
                 .timestamp(System.currentTimeMillis())
+                .isComplete(isComplete)
                 .build();
     }
 
@@ -75,6 +94,28 @@ public class WsChatMessage {
         return WsChatMessage.builder()
                 .type("ping")
                 .content("pong")
+                .timestamp(System.currentTimeMillis())
+                .build();
+    }
+
+    /**
+     * 创建命令输出消息
+     */
+    public static WsChatMessage commandOutput(String content) {
+        return WsChatMessage.builder()
+                .type("command_output")
+                .content(content)
+                .timestamp(System.currentTimeMillis())
+                .build();
+    }
+
+    /**
+     * 创建命令完成消息
+     */
+    public static WsChatMessage commandComplete(int exitCode) {
+        return WsChatMessage.builder()
+                .type("command_complete")
+                .exitCode(exitCode)
                 .timestamp(System.currentTimeMillis())
                 .build();
     }

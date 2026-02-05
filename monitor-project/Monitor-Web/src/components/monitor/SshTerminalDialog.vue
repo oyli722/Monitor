@@ -16,6 +16,14 @@
           <span class="label">IP:</span>
           <span class="value">{{ host?.ip }}</span>
         </span>
+        <el-button
+          type="success"
+          :icon="ChatDotRound"
+          size="small"
+          @click="handleAiAssistantClick"
+        >
+          AI助手
+        </el-button>
       </div>
       <TerminalPanel
         v-if="sessionId && host"
@@ -24,12 +32,23 @@
         @close="handleTerminalClose"
       />
     </div>
+
+    <!-- AI助手对话框 -->
+    <AiAssistantDialog
+      ref="aiAssistantDialogRef"
+      :ssh-session-id="sessionId || undefined"
+      :agent-id="host?.agentId || ''"
+      @connected="handleAiConnected"
+    />
   </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { ChatDotRound } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import TerminalPanel from './TerminalPanel.vue'
+import AiAssistantDialog from '../ai/AiAssistantDialog.vue'
 import type { Agent } from '@/types/monitor'
 
 interface Props {
@@ -47,6 +66,7 @@ const emit = defineEmits<{
 
 // 响应式数据
 const visible = ref(props.modelValue)
+const aiAssistantDialogRef = ref<InstanceType<typeof AiAssistantDialog> | null>(null)
 
 // 监听 modelValue 变化
 watch(
@@ -72,6 +92,16 @@ function handleClose() {
   visible.value = false
   emit('close')
 }
+
+// AI助手按钮点击
+function handleAiAssistantClick() {
+  aiAssistantDialogRef.value?.open()
+}
+
+// AI助手连接成功回调
+function handleAiConnected(sessionId: string) {
+  ElMessage.success('AI助手已连接')
+}
 </script>
 
 <style scoped>
@@ -87,6 +117,7 @@ function handleClose() {
   background-color: var(--bg-secondary);
   border-radius: 6px;
   margin-bottom: 16px;
+  align-items: center;
 }
 
 .info-item {
@@ -104,5 +135,10 @@ function handleClose() {
   font-size: 14px;
   color: var(--text-primary);
   font-weight: 600;
+}
+
+/* AI助手按钮样式 - 放在最右侧 */
+.terminal-info .el-button {
+  margin-left: auto;
 }
 </style>

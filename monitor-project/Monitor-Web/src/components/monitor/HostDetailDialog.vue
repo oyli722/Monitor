@@ -143,6 +143,14 @@
       :host="host"
       @close="handleSshClose"
     />
+
+    <!-- AI 助手对话框 -->
+    <AiAssistantDialog
+      ref="aiAssistantDialogRef"
+      :ssh-session-id="sshSessionId || undefined"
+      :agent-id="host?.agentId || ''"
+      @connected="handleAiConnected"
+    />
   </el-dialog>
 </template>
 
@@ -152,6 +160,7 @@ import * as echarts from 'echarts'
 import { Monitor, ChatLineSquare } from '@element-plus/icons-vue'
 import SshCredentialDialog from './SshCredentialDialog.vue'
 import SshTerminalDialog from './SshTerminalDialog.vue'
+import AiAssistantDialog from '../ai/AiAssistantDialog.vue'
 import type { Agent, AgentMetrics, TimeRange, MetricType, MetricsHistoryResponse } from '@/types/monitor'
 import { getLatestMetrics, getMetricsHistory } from '@/api/monitor'
 import { ElMessage } from 'element-plus'
@@ -177,6 +186,10 @@ const loadingHistory = ref<MetricType | null>(null)
 const sshCredentialDialogVisible = ref(false)
 const sshSessionId = ref<string | null>(null)
 const sshTerminalDialogVisible = ref(false)
+
+// AI 助手相关状态
+const aiAssistantDialogRef = ref<InstanceType<typeof AiAssistantDialog> | null>(null)
+const aiSessionId = ref<string>('')
 
 // 图表引用
 const cpuChartRef = ref<HTMLDivElement>()
@@ -391,9 +404,19 @@ function handleSshClose() {
   sshTerminalDialogVisible.value = false
 }
 
-// AI 帮助按钮点击（待开发）
+// AI 帮助按钮点击
 function handleAiClick() {
-  ElMessage.info('AI 帮助功能开发中...')
+  if (!sshSessionId.value) {
+    ElMessage.warning('请先连接 SSH 终端')
+    return
+  }
+  aiAssistantDialogRef.value?.open()
+}
+
+// AI 助手连接成功回调
+function handleAiConnected(sessionId: string) {
+  aiSessionId.value = sessionId
+  ElMessage.success('AI 助手已连接')
 }
 
 // 获取进度条颜色
@@ -405,14 +428,14 @@ function getProgressColor(percentage: number): string {
 
 // 获取最高磁盘使用率
 function getHighestDiskUsage(): number | null {
-  if (!metrics?.diskUsages || metrics.diskUsages.length === 0) return null
-  return Math.max(...metrics.diskUsages.map((d) => d.usagePercent))
+  if (!metrics.value?.diskUsages || metrics.value.diskUsages.length === 0) return null
+  return Math.max(...metrics.value.diskUsages.map((d) => d.usagePercent))
 }
 
 // 获取最高磁盘使用率的挂载点
 function getHighestDiskMount(): string | null {
-  if (!metrics?.diskUsages || metrics.diskUsages.length === 0) return null
-  const highest = metrics.diskUsages.reduce((prev, curr) =>
+  if (!metrics.value?.diskUsages || metrics.value.diskUsages.length === 0) return null
+  const highest = metrics.value.diskUsages.reduce((prev, curr) =>
     curr.usagePercent > prev.usagePercent ? curr : prev,
   )
   return highest.mount

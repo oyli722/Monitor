@@ -144,12 +144,7 @@ public class CommandContextManager {
      * @param output      输出内容
      */
     private void pushOutputToFrontend(String aiSessionId, String output) {
-        WsChatMessage message = WsChatMessage.builder()
-                .type("command_output")
-                .content(output)
-                .timestamp(System.currentTimeMillis())
-                .build();
-
+        WsChatMessage message = WsChatMessage.commandOutput(output);
         aiSshAssistantManager.sendToSession(aiSessionId, message);
     }
 
@@ -190,12 +185,8 @@ public class CommandContextManager {
      * @param aiSessionId AI会话ID
      */
     private void pushCompleteToFrontend(String aiSessionId) {
-        WsChatMessage message = WsChatMessage.builder()
-                .type("command_complete")
-                .content("命令执行完成")
-                .timestamp(System.currentTimeMillis())
-                .build();
-
+        // TODO: 获取实际退出码，暂时使用0表示成功
+        WsChatMessage message = WsChatMessage.commandComplete(0);
         aiSshAssistantManager.sendToSession(aiSessionId, message);
     }
 
