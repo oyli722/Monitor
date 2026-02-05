@@ -1,13 +1,17 @@
 package com.hundred.monitor.server.ai.command;
 
+import com.hundred.monitor.server.ai.entity.SshAssistantMessage;
 import com.hundred.monitor.server.ai.service.AiSshAssistantService;
+import com.hundred.monitor.server.ai.utils.TerminalChatRedisUtils;
 import com.hundred.monitor.server.ai.websocket.dto.WsChatMessage;
 import com.hundred.monitor.server.ai.websocket.manager.AiSshAssistantManager;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,7 +29,11 @@ public class CommandContextManager {
     private AiSshAssistantManager aiSshAssistantManager;
 
     @Resource
+    @Lazy
     private AiSshAssistantService aiSshAssistantService;
+
+    @Resource
+    private TerminalChatRedisUtils terminalChatRedisUtils;
 
     /**
      * 命令存储：commandId -> CommandContext
@@ -209,7 +217,15 @@ public class CommandContextManager {
                     context.getOutput()
             );
 
-            // 推送分析结果给前端
+            // 保存AI分析结果到消息历史
+            SshAssistantMessage aiMsg = SshAssistantMessage.builder()
+                    .role("assistant")
+                    .content(analysis)
+                    .timestamp(Instant.now().toEpochMilli())
+                    .build();
+            terminalChatRedisUtils.addMessage(context.getAiSessionId(), aiMsg);
+
+            // 推送分析结果给前端（WebSocket）
             aiSshAssistantManager.sendReply(context.getAiSessionId(), analysis);
 
             log.info("AI分析完成: commandId={}", commandId);
@@ -217,9 +233,17 @@ public class CommandContextManager {
         } catch (Exception e) {
             log.error("AI分析失败: commandId={}", commandId, e);
 
-            // 推送错误消息
-            String errorMsg = "命令执行完成，但分析失败：" + e.getMessage();
-            aiSshAssistantManager.sendReply(context.getAiSessionId(), errorMsg);
+            // 保存错误消息到历史
+            String errorText = "命令执行完成，但分析失败：" + e.getMessage();
+            SshAssistantMessage errorMessage = SshAssistantMessage.builder()
+                    .role("assistant")
+                    .content(errorText)
+                    .timestamp(Instant.now().toEpochMilli())
+                    .build();
+            terminalChatRedisUtils.addMessage(context.getAiSessionId(), errorMessage);
+
+            // 推送错误消息（WebSocket）
+            aiSshAssistantManager.sendReply(context.getAiSessionId(), errorText);
         } finally {
             // 延迟清理命令上下文（5秒后）
             scheduleCleanup(commandId);

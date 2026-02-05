@@ -2,6 +2,7 @@ package com.hundred.monitor.server.ai.entity;
 
 
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.UserMessage;
 
 /**
  * AI助手接口
@@ -16,8 +17,8 @@ public interface Assistant {
      * @param userMessage 用户消息
      * @return AI回复
      */
-    @SystemMessage("You are a helpful assistant.")
-    String chat(String userMessage);
+    @SystemMessage("{{systemPrompt}}")
+    String chat(@UserMessage String userMessage);
 
     /**
      * 发送带系统提示词的消息
@@ -26,5 +27,6 @@ public interface Assistant {
      * @param userMessage 用户消息
      * @return AI回复
      */
-    String chat(String systemPrompt, String userMessage);
+    @SystemMessage("{{systemPrompt}}")
+    String chat(@dev.langchain4j.service.V("systemPrompt") String systemPrompt, @UserMessage String userMessage);
 }

@@ -7,6 +7,7 @@ import com.hundred.monitor.server.ai.entity.Assistant;
 import com.hundred.monitor.server.ai.tools.SshExecuteTool;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.http.client.jdk.JdkHttpClientBuilder;
 import jakarta.annotation.Resource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -36,6 +37,7 @@ public class AgentAssistantConfig {
         return OpenAiChatModel.builder()
                 .modelName(agentOllamaChatModelAssistantProperty.getModelName())
                 .baseUrl(agentOllamaChatModelAssistantProperty.getBaseUrl())
+                .httpClientBuilder(new JdkHttpClientBuilder())
                 .build();
     }
 
@@ -49,6 +51,7 @@ public class AgentAssistantConfig {
                 .modelName(agentChatModelAssistantProperty.getModelName())
                 .baseUrl(agentChatModelAssistantProperty.getBaseUrl())
                 .temperature(monitorAgentCreateProperty.getDefaultModelTemperature())
+                .httpClientBuilder(new JdkHttpClientBuilder())
                 .build();
     }
 

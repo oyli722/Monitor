@@ -11,7 +11,6 @@ spring:
     password: admin
     virtual-host: /
 
-
   # datasource configu (MySQL)
   datasource:
     url: jdbc:mysql://localhost:3306/monitor
@@ -62,7 +61,11 @@ ai:
   monitor-agent:
     default-model-name: ollama
     default-model-temperature: 0.05
-
+  function-test:
+    model-name: glm-4.7
+    ip-address: 92.168.80.132
+    username: hundred
+    password: 100000100ce.
 
 langchain4j:
   open-ai:
@@ -72,5 +75,5 @@ langchain4j:
       base-url: https://open.bigmodel.cn/api/paas/v4/
   ollama:
     chat-model:
-      base-url: http://localhost:11434
+      base-url: http://localhost:11434/v1
       model-name: gemma3:4b

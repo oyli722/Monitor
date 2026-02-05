@@ -850,8 +850,395 @@ public class AsyncConfig {
 |------|------|------|
 | bbeaf6c | 重构AI模块：场景分离与工具调用优化 | 2025-02-04 |
 | bc065c6 | 实现AI命令执行结果分析功能 | 2025-02-04 |
+| e0f5c1a | 更新AI助手终端开发记录：添加命令执行结果分析功能交互过程 | 2025-02-05 |
 
 ---
 
-*文档更新时间：2025年2月4日*
-*最后更新：命令执行结果分析功能（V2.0）*
+## 十、测试开发（V2.1）
+
+### 10.1 测试策略
+
+采用**从简单到复杂**的测试开发策略，依次测试：
+1. 实体类
+2. ThreadLocal上下文
+3. Manager层
+4. Service层
+5. 集成测试（真实AI模型）
+6. 功能测试（端到端）
+
+### 10.2 测试用例开发
+
+#### 步骤1: 实体类测试 - CommandContextTest
+
+**文件**: `src/test/java/com/hundred/monitor/server/ai/command/CommandContextTest.java`
+
+**测试数量**: 13个
+
+**测试覆盖**:
+- 无参构造函数
+- Builder模式
+- Getter/Setter方法
+- 超时检测（isTimeout）
+- 输出管理
+- 状态转换
+
+**修复问题**:
+```java
+// 问题：Lombok @Builder.Default 初始化集合为空字符串而非null
+// 修复：修改断言
+assertThat(context.getOutput()).isEqualTo(""); // 原为 assertNull()
+```
+
+**结果**: ✅ 13/13 通过
+
+---
+
+#### 步骤2: ThreadLocal测试 - SshSessionContextTest
+
+**文件**: `src/test/java/com/hundred/monitor/server/ai/context/SshSessionContextTest.java`
+
+**测试数量**: 11个
+
+**测试覆盖**:
+- aiSessionId 字段设置和获取
+- sshSessionId 字段设置和获取
+- agentId 字段设置和获取
+- clear() 方法清理
+- 多线程变量独立性
+
+**结果**: ✅ 11/11 通过
+
+---
+
+#### 步骤3: Manager测试 - AiSshAssistantManagerTest
+
+**文件**: `src/test/java/com/hundred/monitor/server/ai/websocket/manager/AiSshAssistantManagerTest.java`
+
+**测试数量**: 20个
+
+**测试覆盖**:
+- 会话添加和移除
+- 消息发送
+- 广播功能
+- 会话清理
+- Mock WebSocket会话
+
+**修复问题**:
+```java
+// 问题：Mockito UnnecessaryStubbingException
+// 原因：setUp() 中的stubbing未被所有测试使用
+// 修复：添加 @MockitoSettings(strictness = Strictness.LENIENT)
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+class AiSshAssistantManagerTest { ... }
+```
+
+**结果**: ✅ 20/20 通过
+
+---
+
+#### 步骤4: 命令上下文管理测试 - CommandContextManagerTest
+
+**文件**: `src/test/java/com/hundred/monitor/server/ai/command/CommandContextManagerTest.java`
+
+**测试数量**: 22个
+
+**测试覆盖**:
+- 命令注册
+- 输出追加
+- 命令完成
+- 超时处理
+- 清理功能
+
+**修复问题**:
+```java
+// 问题1：类型不匹配
+// String commandId = commandContextManager.getCommand(...);
+// 修复：CommandContext command = commandContextManager.getCommand(...);
+
+// 问题2：验证次数错误
+// verify(aiSshRedisUtils).addMessage(...)  // 期望1次，实际2次
+// 修复：verify(aiSshRedisUtils, times(2)).addMessage(...)
+```
+
+**结果**: ✅ 22/22 通过
+
+---
+
+#### 步骤5: Service层测试 - AiSshAssistantServiceTest
+
+**文件**: `src/test/java/com/hundred/monitor/server/ai/service/AiSshAssistantServiceTest.java`
+
+**测试数量**: 13个
+
+**测试覆盖**:
+- sendMessage
+- getMessages
+- clearMessages
+- analyzeCommandOutput 错误处理
+
+**修复问题**:
+```java
+// 问题：@InjectMocks 无法手动注入依赖
+// 修复：手动设置mock对象
+AiSshAssistantService service = new AiSshAssistantService();
+ReflectionTestUtils.setField(service, "terminalChatRedisUtils", mockRedisUtils);
+// ... 其他依赖
+```
+
+**结果**: ✅ 13/13 通过
+
+---
+
+#### 步骤6: 集成测试 - AiSshAssistantServiceIntegrationTest
+
+**文件**: `src/test/java/com/hundred/monitor/server/ai/service/AiSshAssistantServiceIntegrationTest.java`
+
+**测试数量**: 9个
+
+**测试环境**:
+```properties
+ai.monitor-agent.default-model-name=ollama
+langchain4j.ollama.chat-model.base-url=http://localhost:11434/v1
+langchain4j.ollama.chat-model.model-name=qwen2.5:7b
+```
+
+**测试覆盖**:
+1. 简单问候
+2. 技术问题（磁盘使用命令）
+3. 多轮对话（上下文记忆）
+4. 消息历史保存
+5. 清除消息
+6. 不存在会话异常处理
+7. 响应时间
+8. 命令输出分析
+9. ThreadLocal清理
+
+**修复问题**:
+
+| 问题 | 原因 | 修复方案 |
+|------|------|----------|
+| 404 page not found | baseUrl缺少`/v1`路径 | 改为`http://localhost:11434/v1` |
+| HTTP客户端冲突 | 多个HTTP客户端实现冲突 | 添加`.httpClientBuilder(new JdkHttpClientBuilder())` |
+| 参数注解错误 | LangChain4j注解不正确 | 添加`@UserMessage`和`@V("systemPrompt")` |
+| 工具不支持 | gemma3:4b不支持Function Calling | 切换到qwen2.5:7b模型 |
+| 循环依赖 | commandContextManager ↔ aiSshAssistantService | 添加`@Lazy`注解 |
+
+**代码修复**:
+
+**1. application.yaml配置**
+```yaml
+langchain4j:
+  ollama:
+    chat-model:
+      base-url: http://localhost:11434/v1  # 添加 /v1 路径
+      model-name: gemma3:4b  # 或 qwen2.5:7b
+```
+
+**2. AgentAssistantConfig.java**
+```java
+@Bean
+public OpenAiChatModel getOllamaAiChatModel() {
+    return OpenAiChatModel.builder()
+            .modelName(agentOllamaChatModelAssistantProperty.getModelName())
+            .baseUrl(agentOllamaChatModelAssistantProperty.getBaseUrl())
+            .httpClientBuilder(new JdkHttpClientBuilder())  // 添加
+            .build();
+}
+```
+
+**3. Assistant.java**
+```java
+public interface Assistant {
+    @SystemMessage("You are a helpful assistant.")
+    String chat(@UserMessage String userMessage);
+
+    @SystemMessage("{{systemPrompt}}")
+    String chat(@V("systemPrompt") String systemPrompt,
+                @UserMessage String userMessage);
+}
+```
+
+**4. CommandContextManager.java**
+```java
+@Resource
+@Lazy  // 添加，打破循环依赖
+private AiSshAssistantService aiSshAssistantService;
+```
+
+**结果**: ✅ 9/9 通过
+
+---
+
+#### 步骤7: 功能测试 - AiSshTaskExecuteTest
+
+**文件**: `src/test/java/com/hundred/monitor/server/ai/service/AiSshTaskExecuteTest.java`
+
+**测试目的**: 验证完整的SSH命令执行和AI分析流程
+
+**测试流程**:
+```
+1. SSH连接 (agent-001, hundred, 100000100ce.)
+   ↓
+2. 创建AI会话绑定
+   ↓
+3. AI发送消息: "请执行ls命令并查看当前目录的文件列表"
+   ↓
+4. AI调用SshExecuteTool执行ls命令
+   ↓
+5. 模拟SSH输出: "Desktop  Documents  Downloads..."
+   ↓
+6. 触发AI分析
+   ↓
+7. 验证消息历史包含AI分析结果
+```
+
+**修复问题**:
+
+| 问题 | 原因 | 修复方案 |
+|------|------|----------|
+| AI分析结果未保存 | triggerAiAnalysis()只发送WebSocket，未保存到Redis | 添加`terminalChatRedisUtils.addMessage()` |
+
+**CommandContextManager修复**:
+```java
+@Async("commandAnalysisExecutor")
+public void triggerAiAnalysis(CommandContext context) {
+    try {
+        String analysis = aiSshAssistantService.analyzeCommandOutput(
+                context.getCommand(),
+                context.getOutput()
+        );
+
+        // 保存AI分析结果到消息历史
+        SshAssistantMessage aiMsg = SshAssistantMessage.builder()
+                .role("assistant")
+                .content(analysis)
+                .timestamp(Instant.now().toEpochMilli())
+                .build();
+        terminalChatRedisUtils.addMessage(context.getAiSessionId(), aiMsg);
+
+        // 推送分析结果给前端（WebSocket）
+        aiSshAssistantManager.sendReply(context.getAiSessionId(), analysis);
+    } catch (Exception e) {
+        // ... 错误处理也保存到历史
+    }
+}
+```
+
+**测试结果**:
+```
+========== 消息历史 ==========
+[user] 请执行ls命令并查看当前目录的文件列表
+[assistant] 我已经为您执行了 `ls` 命令...
+[assistant] ### 命令分析
+1. **执行状态**：命令 `ls` 成功执行
+2. **关键信息**：Desktop, Documents, Downloads, Music, Pictures...
+3. **异常情况**：未发现任何警告或错误信息
+4. **建议**：建议定期清理这些目录以提高系统性能
+==============================
+
+测试结果: ✅ 通过
+消息总数: 3（之前是2）
+最后一条消息包含分析: true
+```
+
+**结果**: ✅ 通过
+
+### 10.3 测试用例统计
+
+| 测试类 | 测试数量 | 状态 |
+|--------|---------|------|
+| CommandContextTest | 13 | ✅ 通过 |
+| SshSessionContextTest | 11 | ✅ 通过 |
+| AiSshAssistantManagerTest | 20 | ✅ 通过 |
+| CommandContextManagerTest | 22 | ✅ 通过 |
+| AiSshAssistantServiceTest | 13 | ✅ 通过 |
+| AiSshAssistantServiceIntegrationTest | 9 | ✅ 通过 |
+| AiSshTaskExecuteTest | 1 | ✅ 通过 |
+| **总计** | **89** | **✅ 全部通过** |
+
+### 10.4 问题修复汇总
+
+| 问题编号 | 问题描述 | 影响范围 | 修复方案 |
+|---------|---------|---------|----------|
+| 1 | Lombok @Builder.Default行为 | CommandContextTest | 修改断言预期 |
+| 2 | Mockito UnnecessaryStubbingException | AiSshAssistantManagerTest | 添加@MockitoSettings(strictness=LENIENT) |
+| 3 | 类型不匹配 | CommandContextManagerTest | 修改变量类型 |
+| 4 | 验证次数错误 | CommandContextManagerTest | 使用times(2) |
+| 5 | 手动依赖注入 | AiSshAssistantServiceTest | 使用ReflectionTestUtils |
+| 6 | 404 page not found | 集成测试 | baseUrl添加/v1 |
+| 7 | HTTP客户端冲突 | 集成测试 | 指定JdkHttpClientBuilder |
+| 8 | LangChain4j注解错误 | 集成测试 | 添加@UserMessage和@V注解 |
+| 9 | 工具不支持 | 集成测试 | 切换到qwen2.5:7b模型 |
+| 10 | 循环依赖 | 运行时 | 添加@Lazy注解 |
+| 11 | AI分析结果未保存 | 功能测试 | 添加terminalChatRedisUtils调用 |
+
+### 10.5 技术要点总结
+
+#### 1. LangChain4j与Ollama集成
+
+```yaml
+# application.yaml
+langchain4j:
+  ollama:
+    chat-model:
+      base-url: http://localhost:11434/v1  # 必须包含/v1
+      model-name: qwen2.5:7b               # 需要支持工具的模型
+```
+
+**注意事项**:
+- Ollama的OpenAI兼容端点: `/v1/chat/completions`
+- baseUrl需要包含版本路径: `http://localhost:11434/v1`
+- 模型需要支持Function Calling工具调用
+
+#### 2. LangChain4j参数注解
+
+```java
+public interface Assistant {
+    // 用户消息
+    String chat(@UserMessage String userMessage);
+
+    // 带系统提示词的对话
+    @SystemMessage("{{systemPrompt}}")
+    String chat(@V("systemPrompt") String systemPrompt,
+                @UserMessage String userMessage);
+}
+```
+
+#### 3. Spring循环依赖解决方案
+
+```java
+@Component
+public class CommandContextManager {
+    @Resource
+    @Lazy  // 延迟加载，打破循环依赖
+    private AiSshAssistantService aiSshAssistantService;
+}
+```
+
+#### 4. 消息历史保存机制
+
+AI分析结果需要同时：
+1. 保存到Redis消息历史（供前端加载历史记录）
+2. 通过WebSocket推送给前端（实时更新）
+
+```java
+// 1. 保存到历史
+terminalChatRedisUtils.addMessage(aiSessionId, aiMessage);
+
+// 2. WebSocket推送
+aiSshAssistantManager.sendReply(aiSessionId, analysis);
+```
+
+### 10.6 开发提交记录
+
+| 提交 | 说明 | 日期 |
+|------|------|------|
+| bbeaf6c | 重构AI模块：场景分离与工具调用优化 | 2025-02-04 |
+| bc065c6 | 实现AI命令执行结果分析功能 | 2025-02-04 |
+| e0f5c1a | 更新AI助手终端开发记录：添加命令执行结果分析功能交互过程 | 2025-02-05 |
+
+---
+
+*文档更新时间：2025年2月5日*
+*最后更新：测试开发（V2.1）*
