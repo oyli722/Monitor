@@ -12,7 +12,7 @@
       <div class="session-list">
         <div
           v-for="session in sessions"
-          :key="session.sessionId"
+          :key="session.sessionId || session.title || session.updatedAt"
           class="session-item"
           :class="{ active: session.sessionId === currentSessionId }"
           @click="handleSelectSession(session.sessionId)"
@@ -144,10 +144,23 @@ const generateMessageId = (): string => {
 }
 
 // 格式化时间
-const formatTime = (timestamp: number): string => {
+const formatTime = (timestamp: number | undefined | null): string => {
+  if (!timestamp) return '未知时间'
+
   const date = new Date(timestamp)
   const now = new Date()
+
+  // 检查日期是否有效
+  if (isNaN(date.getTime())) {
+    return '未知时间'
+  }
+
   const diff = now.getTime() - date.getTime()
+
+  // 时间戳在未来（时钟不同步）
+  if (diff < 0) {
+    return '刚刚'
+  }
 
   // 小于1小时显示分钟
   if (diff < 3600000) {
@@ -183,10 +196,30 @@ const loadSessions = async () => {
   try {
     const data = await getChatSessions()
     console.log('[SidebarAssistant] loadSessions result:', data)
-    sessions.value = data
+
+    // 确保 data 是有效的数组
+    if (!Array.isArray(data)) {
+      console.warn('[SidebarAssistant] loadSessions received non-array data:', data)
+      sessions.value = []
+      return
+    }
+
+    // 过滤掉无效的会话数据
+    const validSessions = data.filter(session => {
+      return session && session.sessionId && session.title
+    })
+
+    if (validSessions.length !== data.length) {
+      console.warn('[SidebarAssistant] Filtered out invalid sessions:', data.length - validSessions.length)
+    }
+
+    // 使用 nextTick 确保 Vue 响应式系统正确更新
+    await nextTick()
+    sessions.value = validSessions
   } catch (error: any) {
     console.error('[SidebarAssistant] loadSessions error:', error)
     ElMessage.error('加载会话列表失败: ' + (error.message || '未知错误'))
+    sessions.value = []
   }
 }
 
@@ -260,13 +293,17 @@ const handleSendMessage = async (content: string) => {
       })
       console.log('[SidebarAssistant] Session created:', result)
       currentSessionId.value = result.sessionId
-      await loadSessions()
 
       // 初始化消息列表（为创建会话的消息预留位置）
       messages.value = []
+
+      // 延迟加载会话列表，避免与添加消息操作冲突
+      await nextTick()
+      await loadSessions()
     } catch (error: any) {
       console.error('[SidebarAssistant] Create session error:', error)
       ElMessage.error('创建会话失败: ' + (error.message || '未知错误'))
+      isLoading.value = false
       return
     }
   }
@@ -291,17 +328,25 @@ const handleSendMessage = async (content: string) => {
     })
     console.log('[SidebarAssistant] Received response:', response)
 
+    // 验证响应数据
+    if (!response || !response.reply) {
+      throw new Error('AI回复格式错误')
+    }
+
     // 添加AI回复
     const assistantMessage: ChatMessageType = {
       id: generateMessageId(),
       role: 'assistant',
       content: response.reply,
-      timestamp: response.message.timestamp
+      timestamp: response.message?.timestamp || Date.now()
     }
     messages.value.push(assistantMessage)
 
-    // 刷新会话列表（更新时间）
-    await loadSessions()
+    // 延迟刷新会话列表，避免与消息更新冲突
+    await nextTick()
+    await loadSessions().catch(err => {
+      console.warn('[SidebarAssistant] Failed to refresh sessions:', err)
+    })
 
     scrollToBottom()
   } catch (error: any) {

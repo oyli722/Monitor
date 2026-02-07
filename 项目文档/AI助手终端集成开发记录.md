@@ -6,7 +6,100 @@
 
 ---
 
-## 二、初始架构设计
+## 二、架构演进（V3.0：模块化重构）
+
+### 2.1 重构背景
+
+为了实现更好的系统可扩展性和服务独立性，将侧边栏AI助手功能从Monitor-Server中抽离，形成独立的Monitor-AI微服务模块。
+
+### 2.2 重构目标
+
+| 重构项 | 说明 |
+|--------|------|
+| **独立部署** | Monitor-AI可作为独立服务部署（端口8081） |
+| **职责分离** | 侧边栏AI → Monitor-AI，SSH绑定AI → Monitor-Server |
+| **共享依赖** | CommonLibrary扩展ai/model、ai/request、ai/response |
+| **API通信** | AI服务通过Feign调用Server的Agent API |
+| **前端路由** | 分别配置不同baseURL调用不同服务 |
+
+### 2.3 新架构总览
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              Monitor-Web (Vue 3)                        │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │  侧边栏AI助手 (/ai)           主机详情页AI助手                     │   │
+│  │  ├─ ChatSessionAPI            ├─ AiAssistantDialog.vue            │   │
+│  │  └─ ai-request.ts             └─ useAiChat.ts                    │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│           │                                        │                    │
+│           │ HTTP REST API                         │ WebSocket          │
+│           ▼                                        ▼                    │
+│  ┌──────────────────┐                   ┌──────────────────┐             │
+│  │  Monitor-AI      │                   │  Monitor-Server  │             │
+│  │  Port: 8081      │◄── Feign ────────►│  Port: 8080      │             │
+│  │  ┌────────────┐  │   Agent API       │  ┌────────────┐  │             │
+│  │  │ChatController│ │  ──────────────► │ │AgentApiController│ │            │
+│  │  └────────────┘  │                   │  └────────────┘  │             │
+│  │  ┌────────────┐  │                   │  ┌────────────┐  │             │
+│  │  │ChatService   │ │                   │  │AiSshAssistantController│ │    │
+│  │  └────────────┘  │                   │  └────────────┘  │             │
+│  └──────────────────┘                   └──────────────────┘             │
+│           │                                        │                    │
+│           │ Redis                                  │ Redis              │
+│           ▼                                        ▼                    │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                     CommonLibrary                                  │   │
+│  │  ai/model/ChatMessage, SystemPrompt                               │   │
+│  │  ai/request/CreateSessionRequest, SendMessageRequest              │   │
+│  │  ai/response/ChatResponse, SessionInfoResponse                    │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 2.4 模块职责划分
+
+| 模块 | 职责 | 端口 |
+|------|------|------|
+| **Monitor-Server** | SSH绑定AI助手、Agent管理、SSH代理 | 8080 |
+| **Monitor-AI** | 侧边栏AI助手（多会话管理） | 8081 |
+| **Monitor-Web** | 前端界面，分别调用两个服务 | 5173 |
+| **CommonLibrary** | 共享实体类和DTO | - |
+
+### 2.5 重构完成清单
+
+**新增模块**: Monitor-AI
+- ✅ pom.xml 配置
+- ✅ application.yaml 配置
+- ✅ AIModelConfig.java（GLM-4.7、Ollama双模型配置）
+- ✅ JwtConfig.java（JWT认证）
+- ✅ RedisConfig.java（Redis配置）
+- ✅ FeignConfig.java（Feign客户端配置）
+- ✅ ChatSessionRedisUtils.java（Redis操作）
+- ✅ AgentClient.java（Feign客户端调用Server）
+- ✅ ChatService.java（聊天服务）
+- ✅ ChatController.java（8个REST API端点）
+
+**扩展模块**: CommonLibrary
+- ✅ ai/model/ChatMessage.java
+- ✅ ai/model/ChatSessionInfo.java
+- ✅ ai/model/SystemPrompt.java
+- ✅ ai/request/*.java（请求DTO）
+- ✅ ai/response/*.java（响应DTO）
+
+**修改模块**: Monitor-Server
+- ✅ 删除迁移到Monitor-AI的代码
+- ✅ 创建AgentApiController.java（供AI服务调用）
+- ✅ 更新AiSshAssistantService使用CommonLibrary的SystemPrompt
+
+**修改模块**: Monitor-Web
+- ✅ .env.development 添加VITE_AI_API_BASE_URL
+- ✅ src/utils/ai-request.ts（AI服务专用HTTP客户端）
+- ✅ src/api/ai.ts（ChatSessionAPI使用ai-request）
+
+---
+
+## 三、初始架构设计（已废弃）
 
 ### 2.1 功能需求
 1. **会话管理**：支持多会话、会话列表展示、会话切换、会话删除
@@ -389,22 +482,54 @@ ai:ssh:ws:sessions → Set<aiSessionId>
 
 ---
 
-## 六、架构对比
+## 六、架构对比（V3.0更新）
 
-### 6.1 两种AI助手场景对比
+### 6.1 两种AI助手场景对比（微服务架构）
 
-| 特性 | 场景A：全局侧边栏AI助手 | 场景B：主机详情页AI助手 |
-|------|------------------------|------------------------|
+| 特性 | 场景A：侧边栏AI助手 | 场景B：主机详情页AI助手 |
+|------|----------------------|------------------------|
+| **服务模块** | Monitor-AI (8081) | Monitor-Server (8080) |
 | **位置** | 全局侧边栏 | 主机详情页 |
 | **通信方式** | HTTP REST API | WebSocket长连接 |
-| **会话类型** | 通用会话 | 与SSH终端绑定 |
+| **会话类型** | 多会话管理 | 与SSH终端绑定 |
 | **主机关联** | 可选 | 必需（通过SSH Session） |
 | **SSH命令执行** | 不支持 | 支持 |
 | **Controller** | ChatController | AiSshAssistantController |
 | **Service** | ChatService | AiSshAssistantService |
 | **Handler** | 无 | AiSshAssistantHandler |
 | **Redis前缀** | `assistant:session:*` | `ai:ssh:*` |
-| **开发状态** | ✅ 已完成 | ✅ 已完成 |
+| **前端API** | ChatSessionAPI | AIAssistantAPI |
+| **前端请求** | ai-request.ts | request.ts |
+| **开发状态** | ✅ 已完成（独立部署） | ✅ 已完成 |
+
+### 6.2 服务间通信
+
+**Monitor-AI → Monitor-Server**:
+```
+GET  /api/v1/agent/list          获取Agent列表
+GET  /api/v1/agent/{agentId}     获取Agent详情
+```
+
+**前端 → Monitor-AI**:
+```
+POST   /api/chat/sessions                    创建新会话
+GET    /api/chat/sessions                    获取所有会话
+GET    /api/chat/sessions/{sessionId}        获取会话详情
+DELETE /api/chat/sessions/{sessionId}        删除会话
+GET    /api/chat/sessions/{sessionId}/messages  获取消息历史
+POST   /api/chat/messages                    发送消息
+DELETE /api/chat/sessions/{sessionId}/messages  清空消息
+POST   /api/chat/sessions/{sessionId}/link   关联主机
+```
+
+**前端 → Monitor-Server** (SSH绑定AI):
+```
+POST   /api/ai/ssh-assistant/connect            连接AI助手
+DELETE /api/ai/ssh-assistant/disconnect/{id}    断开AI助手
+GET    /api/ai/ssh-assistant/binding/{id}      获取绑定信息
+GET    /api/ai/ssh-assistant/active/{id}       检查会话活跃
+WebSocket /ws/ai/ssh-assistant/{aiSessionId}   WebSocket连接
+```
 
 ### 6.2 代码复用关系
 
@@ -1455,8 +1580,8 @@ if (currentStreamingMessageId) {
 
 ---
 
-*文档更新时间：2026年2月5日*
-*最后更新：侧边栏AI助手开发完成（V2.3）*
+*文档更新时间：2026年2月7日*
+*最后更新：架构重构完成（V3.0）- 侧边栏AI助手迁移至Monitor-AI独立服务*
 
 ---
 
@@ -1826,7 +1951,127 @@ if (!currentSessionId.value) {
 
 | 功能模块 | 后端状态 | 前端状态 | 备注 |
 |---------|---------|---------|------|
-| 全局侧边栏AI助手 | ✅ ChatController | ✅ SidebarAssistant.vue | HTTP REST API |
-| 主机详情页AI助手 | ✅ AiSshAssistantController | ✅ AiAssistantDialog.vue | WebSocket + SSH绑定 |
+| 全局侧边栏AI助手 | ✅ Monitor-AI: ChatController | ✅ SidebarAssistant.vue | HTTP REST API |
+| 主机详情页AI助手 | ✅ Monitor-Server: AiSshAssistantController | ✅ AiAssistantDialog.vue | WebSocket + SSH绑定 |
+
+---
+
+## 十五、架构重构完成（V3.0）
+
+### 15.1 重构总结
+
+本次重构将侧边栏AI助手功能从Monitor-Server中抽离，形成独立的Monitor-AI微服务模块，实现了更好的系统可扩展性和服务独立性。
+
+### 15.2 重构清单
+
+**Monitor-AI模块（新建）**
+```
+Monitor-AI/
+├── pom.xml                           ✅ Maven配置
+├── src/main/resources/
+│   └── application.yaml              ✅ 服务配置
+└── src/main/java/com/hundred/monitor/ai/
+    ├── MonitorAiApplication.java     ✅ 启动类
+    ├── config/
+    │   ├── AIModelConfig.java        ✅ AI模型配置
+    │   ├── JwtConfig.java            ✅ JWT配置
+    │   ├── RedisConfig.java          ✅ Redis配置
+    │   └── FeignConfig.java          ✅ Feign配置
+    ├── controller/
+    │   └── ChatController.java       ✅ 8个REST API
+    ├── service/
+    │   ├── ChatService.java          ✅ 聊天服务
+    │   └── AgentClient.java          ✅ Feign客户端
+    └── utils/
+        └── ChatSessionRedisUtils.java ✅ Redis工具
+```
+
+**CommonLibrary扩展**
+```
+CommonLibrary/src/main/java/com/hundred/monitor/commonlibrary/ai/
+├── model/
+│   ├── ChatMessage.java              ✅ 聊天消息实体
+│   ├── ChatSessionInfo.java          ✅ 会话信息实体
+│   └── SystemPrompt.java             ✅ 系统提示词
+├── request/
+│   ├── CreateSessionRequest.java     ✅ 创建会话请求
+│   └── SendMessageRequest.java       ✅ 发送消息请求
+└── response/
+    ├── CreateSessionResponse.java    ✅ 创建会话响应
+    ├── ChatMessageResponse.java      ✅ 消息响应
+    ├── ChatResponse.java             ✅ 聊天响应
+    └── SessionInfoResponse.java      ✅ 会话信息响应
+```
+
+**Monitor-Server修改**
+```
+Monitor-Server/src/main/java/com/hundred/monitor/server/
+├── controller/
+│   └── AgentApiController.java       ✅ Agent API（供AI调用）
+├── service/
+│   └── ai/
+│       └── AiSshAssistantService.java 🔧 修改import（CommonLibrary）
+└── model/dto/
+    ├── AgentInfoDTO.java             ✅ Agent信息DTO
+    └── AgentDetailDTO.java           ✅ Agent详情DTO
+```
+
+**Monitor-Web修改**
+```
+Monitor-Web/src/
+├── .env.development                  🔧 添加VITE_AI_API_BASE_URL
+├── utils/
+│   └── ai-request.ts                 ✅ AI服务HTTP客户端
+└── api/
+    └── ai.ts                         🔧 ChatSessionAPI使用ai-request
+```
+
+### 15.3 服务间通信
+
+**Monitor-AI → Monitor-Server（Feign）**
+```java
+@FeignClient(name = "agent-client", url = "${monitor.server.url}")
+public interface AgentClient {
+    @GetMapping("/api/v1/agent/list")
+    BaseResponse<List<AgentInfoDTO>> getAgentList(
+        @RequestHeader("Authorization") String token);
+
+    @GetMapping("/api/v1/agent/{agentId}")
+    BaseResponse<AgentDetailDTO> getAgent(
+        @PathVariable("agentId") String agentId,
+        @RequestHeader("Authorization") String token);
+}
+```
+
+**前端 → Monitor-AI（ai-request.ts）**
+```typescript
+import axios from 'axios'
+const aiRequest = axios.create({
+  baseURL: import.meta.env.VITE_AI_API_BASE_URL, // http://localhost:8081/api
+  timeout: 30000
+})
+```
+
+### 15.4 验证结果
+
+| 验证项 | 状态 | 说明 |
+|--------|------|------|
+| CommonLibrary编译 | ✅ 通过 | 扩展ai/model、ai/request、ai/response |
+| Monitor-AI编译 | ✅ 通过 | 新模块编译成功 |
+| Monitor-Server编译 | ✅ 通过 | 删除迁移代码，添加AgentApiController |
+| Monitor-Web构建 | ✅ 通过 | 添加ai-request.ts，更新API调用 |
+
+### 15.5 技术要点
+
+1. **共享JWT Secret**：Server和AI服务使用相同的JWT密钥，实现Token互通
+2. **Feign调用**：AI服务通过Feign调用Server的Agent API获取主机信息
+3. **独立Redis连接**：两个服务各自连接Redis，通过key前缀区分数据
+4. **前端路由**：通过不同的baseURL（VITE_API_BASE_URL vs VITE_AI_API_BASE_URL）调用不同服务
+
+### 15.6 开发提交记录
+
+| 提交 | 说明 | 日期 |
+|------|------|------|
+| 1d62b0d | 实现侧边栏AI助手功能：多会话管理与HTTP REST API通信 | 2026-02-07 |
 
 ---

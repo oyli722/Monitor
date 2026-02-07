@@ -70,7 +70,8 @@ const roleDisplayName = computed(() => {
 })
 
 const formatTime = computed(() => {
-  const date = new Date(props.message.timestamp)
+  const timestamp = props.message.timestamp || Date.now()
+  const date = new Date(timestamp)
   const hours = date.getHours().toString().padStart(2, '0')
   const minutes = date.getMinutes().toString().padStart(2, '0')
   const seconds = date.getSeconds().toString().padStart(2, '0')

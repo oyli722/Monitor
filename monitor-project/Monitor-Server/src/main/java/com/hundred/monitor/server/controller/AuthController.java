@@ -4,7 +4,7 @@ import com.hundred.monitor.server.model.request.EmailCodeRequest;
 import com.hundred.monitor.server.model.request.ForgetPasswordRequest;
 import com.hundred.monitor.server.model.request.LoginRequest;
 import com.hundred.monitor.server.model.request.RegisterRequest;
-import com.hundred.monitor.server.model.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.common.BaseResponse;
 import com.hundred.monitor.server.model.response.ForgetPasswordResponse;
 import com.hundred.monitor.server.model.response.LoginResponse;
 import com.hundred.monitor.server.model.response.RegisterResponse;
@@ -12,7 +12,6 @@ import com.hundred.monitor.server.service.AuthService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Email;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 

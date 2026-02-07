@@ -2,7 +2,7 @@ package com.hundred.monitor.server.controller;
 
 import com.hundred.monitor.server.model.request.SshCommandRequest;
 import com.hundred.monitor.server.model.request.SshConnectRequest;
-import com.hundred.monitor.server.model.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.common.BaseResponse;
 import com.hundred.monitor.server.model.response.SshConnectResponse;
 import com.hundred.monitor.server.model.response.SshCredentialResponse;
 import com.hundred.monitor.server.service.SshService;

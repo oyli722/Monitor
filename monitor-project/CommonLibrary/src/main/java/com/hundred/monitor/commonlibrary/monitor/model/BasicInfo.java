@@ -1,4 +1,4 @@
-package com.hundred.monitor.commonlibrary.model;
+package com.hundred.monitor.commonlibrary.monitor.model;
 
 import lombok.Data;
 

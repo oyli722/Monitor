@@ -3,6 +3,7 @@
  */
 
 import request from '@/utils/request'
+import aiRequest from '@/utils/ai-request'
 import type {
   ConnectAIRequest,
   ConnectAIResponse,
@@ -16,7 +17,7 @@ import type {
 } from '@/types/ai'
 
 /**
- * AI助手API类
+ * SSH绑定AI助手API类（使用Server服务）
  */
 export class AIAssistantAPI {
   /**
@@ -67,8 +68,8 @@ export const isAIAssistantActive = AIAssistantAPI.isActive
 // ==================== 侧边栏AI助手API ====================
 
 /**
- * 侧边栏AI会话API类
- * 复用ChatController接口
+ * 侧边栏AI会话API类（使用AI服务 8081端口）
+ * 调用Monitor-AI独立服务的ChatController接口
  */
 export class ChatSessionAPI {
   /**
@@ -77,7 +78,7 @@ export class ChatSessionAPI {
    * @returns 会话ID和标题
    */
   static async createSession(data: CreateSessionRequest): Promise<CreateSessionResponse> {
-    return request.post<CreateSessionResponse>('/chat/sessions', data)
+    return aiRequest.post<CreateSessionResponse>('/chat/sessions', data)
   }
 
   /**
@@ -85,7 +86,7 @@ export class ChatSessionAPI {
    * @returns 会话列表
    */
   static async getSessions(): Promise<SessionInfo[]> {
-    return request.get<SessionInfo[]>('/chat/sessions')
+    return aiRequest.get<SessionInfo[]>('/chat/sessions')
   }
 
   /**
@@ -94,7 +95,7 @@ export class ChatSessionAPI {
    * @returns 会话信息
    */
   static async getSession(sessionId: string): Promise<SessionInfo> {
-    return request.get<SessionInfo>(`/chat/sessions/${sessionId}`)
+    return aiRequest.get<SessionInfo>(`/chat/sessions/${sessionId}`)
   }
 
   /**
@@ -102,7 +103,7 @@ export class ChatSessionAPI {
    * @param sessionId 会话ID
    */
   static async deleteSession(sessionId: string): Promise<void> {
-    return request.delete<void>(`/chat/sessions/${sessionId}`)
+    return aiRequest.delete<void>(`/chat/sessions/${sessionId}`)
   }
 
   /**
@@ -111,7 +112,7 @@ export class ChatSessionAPI {
    * @returns 消息列表
    */
   static async getMessages(sessionId: string): Promise<ChatMessageResponse[]> {
-    return request.get<ChatMessageResponse[]>(`/chat/sessions/${sessionId}/messages`)
+    return aiRequest.get<ChatMessageResponse[]>(`/chat/sessions/${sessionId}/messages`)
   }
 
   /**
@@ -120,7 +121,7 @@ export class ChatSessionAPI {
    * @returns AI回复
    */
   static async sendMessage(data: SendMessageRequest): Promise<ChatResponse> {
-    return request.post<ChatResponse>('/chat/messages', data)
+    return aiRequest.post<ChatResponse>('/chat/messages', data)
   }
 
   /**
@@ -128,7 +129,7 @@ export class ChatSessionAPI {
    * @param sessionId 会话ID
    */
   static async clearMessages(sessionId: string): Promise<void> {
-    return request.delete<void>(`/chat/sessions/${sessionId}/messages`)
+    return aiRequest.delete<void>(`/chat/sessions/${sessionId}/messages`)
   }
 
   /**
@@ -137,7 +138,7 @@ export class ChatSessionAPI {
    * @param agentId 主机ID
    */
   static async linkAgent(sessionId: string, agentId: string): Promise<void> {
-    return request.post<void>(`/chat/sessions/${sessionId}/link`, null, {
+    return aiRequest.post<void>(`/chat/sessions/${sessionId}/link`, null, {
       params: { agentId }
     })
   }

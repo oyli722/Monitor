@@ -59,7 +59,17 @@ marked.use({
 
 const renderedHtml = computed(() => {
   if (!props.content) return ''
-  return marked(props.content)
+  try {
+    return marked(props.content)
+  } catch (err) {
+    console.error('[MarkdownRenderer] Error parsing markdown:', err)
+    // 降级处理：返回转义后的纯文本
+    return String(props.content)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>')
+  }
 })
 </script>
 

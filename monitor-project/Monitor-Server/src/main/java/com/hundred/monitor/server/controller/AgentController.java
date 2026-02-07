@@ -4,7 +4,7 @@ import com.hundred.monitor.server.model.request.BasicReportRequest;
 import com.hundred.monitor.server.model.request.CustomerRegisterRequest;
 import com.hundred.monitor.server.model.request.MetricsReportRequest;
 import com.hundred.monitor.server.model.response.AgentRegisterResponse;
-import com.hundred.monitor.server.model.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.common.BaseResponse;
 import com.hundred.monitor.server.service.AgentMetricsService;
 import com.hundred.monitor.server.service.AgentService;
 import lombok.extern.slf4j.Slf4j;

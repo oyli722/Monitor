@@ -1,7 +1,7 @@
 package com.hundred.monitor.server.security.handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hundred.monitor.server.model.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.common.BaseResponse;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;

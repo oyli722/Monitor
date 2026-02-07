@@ -1,9 +1,10 @@
-package com.hundred.monitor.server.ai.service;
+package com.hundred.monitor.ai.service;
 
-import com.hundred.monitor.server.ai.entity.ChatMessage;
-import com.hundred.monitor.server.ai.entity.ChatSessionInfo;
-import com.hundred.monitor.server.ai.entity.SystemPrompt;
-import com.hundred.monitor.server.ai.utils.ChatSessionRedisUtils;
+import com.hundred.monitor.ai.model.ChatAssistant;
+import com.hundred.monitor.ai.utils.ChatSessionRedisUtils;
+import com.hundred.monitor.commonlibrary.ai.model.ChatMessage;
+import com.hundred.monitor.commonlibrary.ai.model.ChatSessionInfo;
+import com.hundred.monitor.commonlibrary.ai.model.SystemPrompt;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -11,8 +12,12 @@ import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -20,7 +25,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * AI聊天服务
+ * AI聊天服务（侧边栏AI助手 - HTTP REST API）
  * 提供会话管理、消息发送、上下文管理和智能总结压缩功能
  */
 @Slf4j
@@ -30,14 +35,14 @@ public class ChatService {
     @Resource
     private ChatSessionRedisUtils redisUtils;
 
-    @Resource(name = "defaultOpenAiChatModel")
-    private OpenAiChatModel defaultOpenAiChatModel;
+    @Resource(name = "defaultOpenAiChatAssistant")
+    private ChatAssistant defaultChatAssistant;
 
-    @Resource(name = "getGlmAiChatModel")
-    private OpenAiChatModel getGlmAiChatModel;
+    @Resource(name = "glmAiChatAssistant")
+    private ChatAssistant jlmAiChatAssistant;
 
-    @Resource(name = "getOllamaAiChatModel")
-    private OpenAiChatModel getOllamaAiChatModel;
+    @Resource(name = "ollamaAiChatAssistant")
+    private ChatAssistant ollamaAiChatAssistant;
 
     @Value("${ai.monitor-agent.default-model-name:ollama}")
     private String defaultModelName;
@@ -46,14 +51,13 @@ public class ChatService {
     private static final String SUMMARY_PROMPT = """
             请将以下对话内容总结为一段简洁的摘要，保留关键信息（用户意图、重要操作、结论）：
             """;
-
     // ==================== 会话管理 ====================
 
     /**
      * 创建新会话
      *
-     * @param userId    用户ID
-     * @param firstMessage 首条用户消息（用于生成标题）
+     * @param userId        用户ID
+     * @param firstMessage  首条用户消息（用于生成标题）
      * @return 会话ID
      */
     public String createSession(String userId, String firstMessage) {
@@ -69,11 +73,11 @@ public class ChatService {
     }
 
     /**
-     * 获取会话信息
+     * 创建新会话（指定会话ID）
      *
-     * @param userId       用户ID
-     * @param firstMessage 首条用户消息（用于生成标题）
-     * @param sessionId    前端传入的会话ID，获取方式：前端已经和SSH建立连接
+     * @param userId        用户ID
+     * @param firstMessage  首条用户消息（用于生成标题）
+     * @param sessionId     前端传入的会话ID
      */
     public void createSession(String userId, String firstMessage, String sessionId) {
         // 生成标题（取前20个字符）
@@ -84,6 +88,7 @@ public class ChatService {
         redisUtils.createSession(userId, sessionId, title);
         log.info("创建会话: userId={}, sessionId={}, title={}", userId, sessionId, title);
     }
+
     /**
      * 获取会话信息
      *
@@ -120,13 +125,13 @@ public class ChatService {
     /**
      * 发送消息并获取AI回复
      *
-     * @param sessionId 会话ID
-     * @param userId    用户ID
+     * @param sessionId   会话ID
+     * @param userId      用户ID
      * @param userMessage 用户消息
-     * @param modelName 模型名称（可选，null使用默认）
+     * @param modelName   模型名称（可选，null使用默认）
      * @return AI回复
      */
-    public String sendMessage(String sessionId, String userId, String userMessage, String modelName) {
+    public Flux<String> sendMessage(String sessionId, String userId, String userMessage, String modelName) {
         // 检查会话是否存在
         if (!redisUtils.sessionExists(sessionId)) {
             throw new IllegalArgumentException("会话不存在: " + sessionId);
@@ -149,24 +154,24 @@ public class ChatService {
         List<dev.langchain4j.data.message.ChatMessage> contextMessages = buildContext(sessionId);
 
         // 调用AI模型
-        String aiResponse = callAI(contextMessages, modelName);
+        Mono<ChatMessage> aiResponse = callAI(contextMessages, modelName).collectList().map(chunk -> {
+            String content = String.join("", chunk);
+            return ChatMessage.builder()
+                    .role("assistant")
+                    .content(content)
+                    .timestamp(Instant.now().toEpochMilli())
+                    .build();
+        }).doOnError(throwable -> {
+            log.error("AI模型调用失败: sessionId={}, userId={}, userMessage={}", sessionId, userId, userMessage, throwable);
+        }).doOnSuccess(aiMsg -> redisUtils.addMessage(sessionId, aiMsg));
 
-        // 构建AI消息
-        ChatMessage aiMsg = ChatMessage.builder()
-                .role("assistant")
-                .content(aiResponse)
-                .timestamp(Instant.now().toEpochMilli())
-                .build();
-
-        // 保存AI消息
-        redisUtils.addMessage(sessionId, aiMsg);
 
         // 检查是否需要总结压缩
         if (redisUtils.needsSummary(sessionId)) {
             performSummary(sessionId);
         }
 
-        return aiResponse;
+        return Flux.from(aiResponse);
     }
 
     /**
@@ -175,7 +180,7 @@ public class ChatService {
      * @param sessionId 会话ID
      * @return 消息列表
      */
-    public List<com.hundred.monitor.server.ai.entity.ChatMessage> getMessages(String sessionId) {
+    public List<ChatMessage> getMessages(String sessionId) {
         return redisUtils.getMessages(sessionId);
     }
 
@@ -211,8 +216,8 @@ public class ChatService {
         }
 
         // 获取近期消息（最多10条）
-        List<com.hundred.monitor.server.ai.entity.ChatMessage> recentMessages = redisUtils.getRecentMessages(sessionId, 10);
-        for (com.hundred.monitor.server.ai.entity.ChatMessage msg : recentMessages) {
+        List<ChatMessage> recentMessages = redisUtils.getRecentMessages(sessionId, 10);
+        for (ChatMessage msg : recentMessages) {
             if ("user".equals(msg.getRole())) {
                 messages.add(new UserMessage(msg.getContent()));
             } else if ("assistant".equals(msg.getRole())) {
@@ -230,13 +235,13 @@ public class ChatService {
      * @param modelName 模型名称
      * @return AI回复
      */
-    private String callAI(List<dev.langchain4j.data.message.ChatMessage> messages, String modelName) {
+    private Flux<String> callAI(List<dev.langchain4j.data.message.ChatMessage> messages, String modelName) {
         try {
-            ChatLanguageModel model = selectModel(modelName);
-            return model.chat(messages).aiMessage().text();
+            ChatAssistant model = selectModel(modelName);
+            return model.chat(messages.toString());
         } catch (Exception e) {
             log.error("AI调用失败", e);
-            return "抱歉，AI服务暂时不可用，请稍后再试。";
+            return Flux.just("抱歉，AI服务暂时不可用，请稍后再试。");
         }
     }
 
@@ -244,17 +249,17 @@ public class ChatService {
      * 选择AI模型
      *
      * @param modelName 模型名称（ollama或glm）
-     * @return ChatLanguageModel实例
+     * @return ChatAssistant 实例
      */
-    private ChatLanguageModel selectModel(String modelName) {
+    private ChatAssistant selectModel(String modelName) {
         if (modelName == null || modelName.isEmpty()) {
             modelName = defaultModelName;
         }
 
         return switch (modelName.toLowerCase()) {
-            case "glm" -> getGlmAiChatModel;
-            case "ollama" -> getOllamaAiChatModel;
-            default -> getOllamaAiChatModel;
+            case "glm" -> jlmAiChatAssistant;
+            case "ollama" -> ollamaAiChatAssistant;
+            default -> defaultChatAssistant;
         };
     }
 
@@ -270,11 +275,11 @@ public class ChatService {
             log.info("开始执行会话总结: sessionId={}", sessionId);
 
             // 获取所有消息
-            List<com.hundred.monitor.server.ai.entity.ChatMessage> allMessages = redisUtils.getMessages(sessionId);
+            List<ChatMessage> allMessages = redisUtils.getMessages(sessionId);
 
             // 构建总结用的对话文本
             StringBuilder conversation = new StringBuilder();
-            for (com.hundred.monitor.server.ai.entity.ChatMessage msg : allMessages) {
+            for (ChatMessage msg : allMessages) {
                 String role = "user".equals(msg.getRole()) ? "用户" : "助手";
                 conversation.append(role).append(": ").append(msg.getContent()).append("\n");
             }

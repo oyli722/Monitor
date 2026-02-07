@@ -1,7 +1,6 @@
 package com.hundred.monitor.server.model.response;
 
-import com.hundred.monitor.commonlibrary.model.BasicInfo;
-import com.hundred.monitor.commonlibrary.response.CommonResponse;
+import com.hundred.monitor.commonlibrary.monitor.response.CommonResponse;
 import com.hundred.monitor.server.model.entity.Agent;
 import lombok.*;
 

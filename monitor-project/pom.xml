@@ -23,6 +23,7 @@
         <module>CommonLibrary</module>
         <module>Monitor-Agent</module>
         <module>Monitor-Server</module>
+        <module>Monitor-AI</module>
     </modules>
 
     <properties>
@@ -118,6 +119,13 @@
             <dependency>
                 <groupId>dev.langchain4j</groupId>
                 <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
+                <version>${langchain4j.version}</version>
+            </dependency>
+
+            <!--      langchian4j的流式响应      -->
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-reactor</artifactId>
                 <version>${langchain4j.version}</version>
             </dependency>
 

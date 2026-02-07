@@ -1,8 +1,8 @@
-package com.hundred.monitor.server.ai.utils;
+package com.hundred.monitor.ai.utils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hundred.monitor.server.ai.entity.ChatMessage;
-import com.hundred.monitor.server.ai.entity.ChatSessionInfo;
+import com.hundred.monitor.commonlibrary.ai.model.ChatMessage;
+import com.hundred.monitor.commonlibrary.ai.model.ChatSessionInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -13,7 +13,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 全局聊天会话Redis工具类（场景A：HTTP REST API）
+ * 全局聊天会话Redis工具类（侧边栏AI助手 - HTTP REST API）
  * 管理全局聊天消息和会话的Redis存储，支持智能总结压缩机制
  */
 @Slf4j

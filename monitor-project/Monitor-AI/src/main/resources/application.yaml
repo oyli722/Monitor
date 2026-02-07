@@ -1,0 +1,73 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: monitor-ai
+
+  # Redis配置
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+  # Feign配置
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            connectTimeout: 5000
+            readTimeout: 10000
+            loggerLevel: basic
+
+# JWT配置（与Server共享）
+jwt:
+  secret: monitor-server-jwt-secret-key-change-in-production
+  expiration: 86400000  # 24小时（毫秒）
+
+# AI模型配置
+langchain4j:
+  # GLM-4.7配置（智谱AI）
+  open-ai:
+    chat-model:
+      api-key: ${AI_API_KEY:your-api-key}
+      base-url: ${AI_BASE_URL:https://open.bigmodel.cn/api/paas/v4/}
+      model-name: glm-4.7
+      temperature: 0.7
+      max-tokens: 2000
+      timeout: 60s
+
+  # Ollama配置（本地模型）
+  ollama:
+    chat-model:
+      base-url: http://localhost:11434/v1
+      model-name: qwen2.5:7b
+      temperature: 0.7
+      timeout: 60s
+
+# 默认AI模型选择
+ai:
+  monitor-agent:
+    default-model-name: ollama  # 可选: ollama, open-ai
+
+# Monitor Server服务地址（Feign调用）
+monitor:
+  server:
+    url: http://localhost:8080
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.hundred.monitor.ai: DEBUG
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

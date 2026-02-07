@@ -1,4 +1,4 @@
-package com.hundred.monitor.commonlibrary.response;
+package com.hundred.monitor.commonlibrary.monitor.response;
 
 import lombok.Data;
 

@@ -1,6 +1,6 @@
-package com.hundred.monitor.commonlibrary.request;
+package com.hundred.monitor.commonlibrary.monitor.request;
 
-import com.hundred.monitor.commonlibrary.model.*;
+import com.hundred.monitor.commonlibrary.monitor.model.Metrics;
 import lombok.Data;
 
 /**

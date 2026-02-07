@@ -1,4 +1,4 @@
-package com.hundred.monitor.server.model.response;
+package com.hundred.monitor.commonlibrary.common;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;

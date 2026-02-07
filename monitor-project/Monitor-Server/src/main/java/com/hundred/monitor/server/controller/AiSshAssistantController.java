@@ -4,7 +4,7 @@ import com.hundred.monitor.server.ai.entity.SshAssistantSessionInfo;
 import com.hundred.monitor.server.ai.entity.SshSessionBinding;
 import com.hundred.monitor.server.ai.utils.TerminalChatRedisUtils;
 import com.hundred.monitor.server.model.request.ConnectRequest;
-import com.hundred.monitor.server.model.response.BaseResponse;
+import com.hundred.monitor.commonlibrary.common.BaseResponse;
 import com.hundred.monitor.server.model.response.ConnectResponse;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;

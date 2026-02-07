@@ -5,7 +5,7 @@ import com.hundred.monitor.server.ai.entity.Assistant;
 import com.hundred.monitor.server.ai.entity.SshAssistantMessage;
 import com.hundred.monitor.server.ai.entity.SshAssistantSessionInfo;
 import com.hundred.monitor.server.ai.entity.SshSessionBinding;
-import com.hundred.monitor.server.ai.entity.SystemPrompt;
+import com.hundred.monitor.commonlibrary.ai.model.SystemPrompt;
 import com.hundred.monitor.server.ai.utils.TerminalChatRedisUtils;
 import com.hundred.monitor.server.service.AgentService;
 import dev.langchain4j.data.message.AiMessage;
