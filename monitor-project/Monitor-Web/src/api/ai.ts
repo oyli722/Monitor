@@ -133,6 +133,9 @@ export class ChatSessionAPI {
       const baseURL = import.meta.env.VITE_AI_API_BASE_URL || 'http://localhost:8081/api'
       const url = `${baseURL}/chat/messages`
 
+      console.log('[sendMessageStream] Sending request to:', url)
+      console.log('[sendMessageStream] Request data:', data)
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -151,38 +154,61 @@ export class ChatSessionAPI {
         throw new Error('Response body is not readable')
       }
 
-      const decoder = new TextDecoder()
+      const decoder = new TextDecoder('utf-8')
       let buffer = ''
+      let chunkCount = 0
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          console.log('[sendMessageStream] Stream done, calling onComplete')
+          break
+        }
 
-        buffer += decoder.decode(value, { stream: true })
+        const rawText = decoder.decode(value, { stream: true })
+        console.log('[sendMessageStream] Received raw data:', JSON.stringify(rawText))
 
-        // 处理 SSE 格式数据
+        // 后端直接发送原始 chunk，每行是一个完整的消息
+        buffer += rawText
         const lines = buffer.split('\n')
         buffer = lines.pop() || '' // 保留最后一个不完整的行
 
+        console.log('[sendMessageStream] Processing lines:', lines.length)
+
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim()
+          if (line.trim().length === 0) continue // 跳过空行
+
+          console.log('[sendMessageStream] Processing line:', JSON.stringify(line))
+
+          // 处理 SSE 格式（Spring 自动添加的）
+          if (line.startsWith('data:')) {
+            const data = line.substring(5).trim() // 移除 "data:" 前缀
+            console.log('[sendMessageStream] Extracted data:', JSON.stringify(data))
+
             if (data === '[DONE]') {
+              console.log('[sendMessageStream] Received [DONE], calling onComplete')
               onComplete()
               return
             }
-            if (data && !data.startsWith('[ERROR]')) {
-              onChunk(data)
-            } else if (data.startsWith('[ERROR]')) {
-              onError(new Error(data.slice(8)))
+            if (data.startsWith('[ERROR]')) {
+              onError(new Error(data.substring(7)))
               return
+            }
+
+            // 正常消息内容
+            if (data && data.length > 0) {
+              chunkCount++
+              console.log('[sendMessageStream] Calling onChunk, count:', chunkCount, 'content:', data)
+              onChunk(data)
             }
           }
         }
       }
 
+      console.log('[sendMessageStream] While loop ended, calling onComplete')
       onComplete()
     } catch (error) {
+      console.error('[sendMessageStream] Error:', error)
       onError(error as Error)
     }
   }

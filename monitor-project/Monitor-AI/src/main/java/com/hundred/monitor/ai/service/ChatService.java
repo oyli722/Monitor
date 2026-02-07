@@ -33,6 +33,11 @@ public class ChatService {
     @Resource
     private ChatSessionRedisReactiveUtils redisUtils;
 
+    // Getter for ChatController to access RedisUtils
+    public ChatSessionRedisReactiveUtils getRedisUtils() {
+        return redisUtils;
+    }
+
     @Resource(name = "defaultOpenAiChatAssistant")
     private ChatAssistant defaultChatAssistant;
 
@@ -140,8 +145,10 @@ public class ChatService {
      * @return AI回复流
      */
     public Flux<String> sendMessage(String sessionId, String userId, String userMessage, String modelName) {
+        log.info("[DEBUG-1] sendMessage开始: sessionId={}, userId={}, message={}", sessionId, userId, userMessage);
         // 检查会话是否存在
         return redisUtils.sessionExists(sessionId)
+                .doOnNext(exists -> log.info("[DEBUG-2] 会话存在检查: exists={}", exists))
                 .flatMap(exists -> {
                     if (!exists) {
                         return Mono.error(new IllegalArgumentException("会话不存在: " + sessionId));
@@ -149,6 +156,7 @@ public class ChatService {
                     return Mono.just(sessionId);
                 })
                 .flatMapMany(id -> {
+                    log.info("[DEBUG-3] 开始构建用户消息");
                     // 构建用户消息
                     ChatMessage userMsg = ChatMessage.builder()
                             .role("user")
@@ -160,25 +168,15 @@ public class ChatService {
                     return redisUtils.addMessage(sessionId, userMsg)
                             .then(redisUtils.refreshSessionTime(userId, sessionId))
                             .thenMany(Flux.defer(() -> {
+                                log.info("[DEBUG-4] 开始构建上下文: sessionId={}", sessionId);
                                 // 获取上下文消息
                                 return buildContext(sessionId)
+                                        .doOnNext(contextMessages -> log.info("[DEBUG-5] 上下文构建完成, 消息数={}", contextMessages.size()))
                                         .flatMapMany(contextMessages -> {
-                                            // 调用AI模型
+                                            log.info("[DEBUG-6] 开始调用AI: modelName={}", modelName);
+                                            // 调用AI模型获取流式响应
                                             return callAI(contextMessages, modelName)
-                                                    // 收集完整回复并保存
-                                                    .collectList()
-                                                    .flatMapMany(chunks -> {
-                                                        String content = String.join("", chunks);
-                                                        log.info("AI回复: {}", content);
-                                                        ChatMessage aiMsg = ChatMessage.builder()
-                                                                .role("assistant")
-                                                                .content(content)
-                                                                .timestamp(Instant.now().toEpochMilli())
-                                                                .build();
-
-                                                        return redisUtils.addMessage(sessionId, aiMsg)
-                                                                .thenMany(Flux.fromIterable(chunks));
-                                                    });
+                                                    .doOnNext(chunk -> log.debug("[DEBUG-STREAM] 发送chunk: {}", chunk.substring(0, Math.min(20, chunk.length()))));
                                         });
                             }))
                             // 检查是否需要总结压缩（异步执行，不影响主流程）
@@ -234,9 +232,13 @@ public class ChatService {
      * @return 上下文消息列表
      */
     private Mono<List<dev.langchain4j.data.message.ChatMessage>> buildContext(String sessionId) {
+        log.info("[DEBUG-buildContext-1] buildContext开始: sessionId={}", sessionId);
         // 获取会话总结
         return redisUtils.getSummary(sessionId)
+                .doOnNext(summary -> log.info("[DEBUG-buildContext-2] 获取summary: {}", summary != null ? "存在" : "null"))
+                .switchIfEmpty(Mono.just(""))  // 处理empty情况
                 .flatMap(summary -> {
+                    log.info("[DEBUG-buildContext-2.5] 进入flatMap, summary={}", summary != null && !summary.isEmpty() ? "有内容" : "空");
                     List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
 
                     // 添加系统提示词
@@ -252,7 +254,9 @@ public class ChatService {
                 .flatMap(messages ->
                     // 获取近期消息（最多10条）并添加到上下文
                     redisUtils.getRecentMessagesAsList(sessionId, 10)
+                        .doOnNext(recentMessages -> log.info("[DEBUG-buildContext-3] 获取recentMessages: count={}", recentMessages.size()))
                         .map(recentMessages -> {
+                            log.info("[DEBUG-buildContext-4] 开始合并消息");
                             for (ChatMessage msg : recentMessages) {
                                 if ("user".equals(msg.getRole())) {
                                     messages.add(new UserMessage(msg.getContent()));
@@ -260,11 +264,13 @@ public class ChatService {
                                     messages.add(new AiMessage(msg.getContent()));
                                 }
                             }
+                            log.info("[DEBUG-buildContext-5] buildContext完成, 总消息数={}", messages.size());
                             return messages;
                         })
                 )
                 .doOnError(e -> log.error("构建上下文失败: sessionId={}", sessionId, e))
                 .onErrorResume(e -> {
+                    log.error("[DEBUG-buildContext-ERROR] 发生错误，返回fallback: {}", e.getMessage());
                     // 返回只有系统提示词的最小上下文
                     List<dev.langchain4j.data.message.ChatMessage> fallback = new ArrayList<>();
                     fallback.add(new SystemMessage(SystemPrompt.getSystemPrompt()));
@@ -280,17 +286,74 @@ public class ChatService {
      * @return AI回复流
      */
     private Flux<String> callAI(List<dev.langchain4j.data.message.ChatMessage> messages, String modelName) {
-        return Mono.fromCallable(() -> selectModel(modelName))
-                .flatMapMany(model -> {
-                    try {
-                        // 调用 ChatAssistant.chat()，传递消息列表
-                        return model.chat(messages);
-                    } catch (Exception e) {
-                        log.error("AI调用失败: modelName={}", modelName, e);
-                        return Flux.just("抱歉，AI服务暂时不可用，请稍后再试。");
-                    }
-                })
-                .doOnError(e -> log.error("AI流式输出失败: modelName={}", modelName, e));
+        try {
+            log.info("[DEBUG-callAI-1] callAI开始: modelName={}, messages={}", modelName, messages.size());
+            // 将消息列表转换为JSON字符串
+            String messagesJson = convertMessagesToJson(messages);
+            log.info("[DEBUG-callAI-2] JSON转换完成: length={}", messagesJson.length());
+            log.info("发送消息到AI: {}", messagesJson.length() > 200 ? messagesJson.substring(0, 200) + "..." : messagesJson);
+
+            // 调用 ChatAssistant.chat()
+            ChatAssistant model = selectModel(modelName);
+            log.info("[DEBUG-callAI-3] 选中模型: {}", modelName);
+            Flux<String> response = model.chat(messagesJson);
+            log.info("[DEBUG-callAI-4] model.chat()返回: {}", response != null ? "非null" : "null");
+
+            // 添加额外的日志来追踪订阅情况
+            return response
+                    .doOnSubscribe(subscription -> log.info("[DEBUG-callAI-5] Flux被订阅"))
+                    .doOnNext(chunk -> log.info("[DEBUG-callAI-6] 收到AI回复片段: {}", chunk))
+                    .doOnComplete(() -> log.info("[DEBUG-callAI-7] AI回复完成"))
+                    .doOnError(e -> log.error("[DEBUG-callAI-ERROR] AI调用异常", e));
+        } catch (Exception e) {
+            log.error("[DEBUG-callAI-EXCEPTION] AI调用失败: modelName={}", modelName, e);
+            return Flux.just("抱歉，AI服务暂时不可用，请稍后再试。");
+        }
+    }
+
+    /**
+     * 将 LangChain4j 消息列表转换为 JSON 字符串
+     * 格式：[{"role":"system","message":"..."},{"role":"user","message":"..."}]
+     *
+     * @param messages LangChain4j 消息列表
+     * @return JSON 字符串
+     */
+    private String convertMessagesToJson(List<dev.langchain4j.data.message.ChatMessage> messages) {
+        try {
+            List<MessageJson> jsonMessages = new ArrayList<>();
+
+            for (dev.langchain4j.data.message.ChatMessage msg : messages) {
+                String role;
+                String content;
+
+                if (msg instanceof SystemMessage) {
+                    role = "system";
+                    content = ((SystemMessage) msg).text();
+                } else if (msg instanceof UserMessage) {
+                    role = "user";
+                    content = ((UserMessage) msg).singleText();
+                } else if (msg instanceof AiMessage) {
+                    role = "assistant";
+                    content = ((AiMessage) msg).text();
+                } else {
+                    // 未知类型，跳过
+                    continue;
+                }
+
+                jsonMessages.add(new MessageJson(role, content));
+            }
+
+            return objectMapper.writeValueAsString(jsonMessages);
+        } catch (Exception e) {
+            log.error("消息转换为JSON失败", e);
+            return "[]";
+        }
+    }
+
+    /**
+     * 消息JSON格式（内部类）
+     */
+    private record MessageJson(String role, String message) {
     }
 
     /**
@@ -304,11 +367,14 @@ public class ChatService {
             modelName = defaultModelName;
         }
 
-        return switch (modelName.toLowerCase()) {
+        log.info("[DEBUG-selectModel] 选择模型: requested={}, default={}", modelName, defaultModelName);
+        ChatAssistant selected = switch (modelName.toLowerCase()) {
             case "glm" -> jlmAiChatAssistant;
             case "ollama" -> ollamaAiChatAssistant;
             default -> defaultChatAssistant;
         };
+        log.info("[DEBUG-selectModel] 选中模型: {}", selected != null ? selected.getClass().getName() : "null");
+        return selected;
     }
 
     // ==================== 智能总结压缩 ====================
@@ -344,17 +410,20 @@ public class ChatService {
      */
     private Mono<String> generateSummary(String conversation) {
         return Mono.fromCallable(() -> {
-            // 构建总结消息
-            List<dev.langchain4j.data.message.ChatMessage> messages = List.of(
-                    new UserMessage(SUMMARY_PROMPT + "\n\n" + conversation)
-            );
+            // 构建总结消息列表（包含system消息）
+            List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
+            messages.add(new SystemMessage("你是一个对话总结助手，请将以下对话内容总结为一段简洁的摘要。"));
+            messages.add(new UserMessage(SUMMARY_PROMPT + "\n\n" + conversation));
+
+            // 转换为JSON字符串
+            String messagesJson = convertMessagesToJson(messages);
 
             // 调用AI生成总结，收集完整响应
             ChatAssistant assistant = selectModel(null);
             StringBuilder summaryBuilder = new StringBuilder();
 
             // 注意：这里需要同步等待结果，因为是 Mono.fromCallable 内部
-            assistant.chat(messages)
+            assistant.chat(messagesJson)
                     .doOnNext(summaryBuilder::append)
                     .blockLast(); // 阻塞等待完成
 

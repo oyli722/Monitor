@@ -173,12 +173,40 @@ public class ChatController {
             @RequestBody @Valid SendMessageRequest request,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
         String userId = getUserIdFromAuth(authHeader);
+        log.info("接收到用户发送的消息...");
+
+        // 用于收集完整回复
+        StringBuilder fullResponse = new StringBuilder();
 
         return chatService.sendMessage(request.getSessionId(), userId, request.getMessage(), request.getModelName())
-                .doOnNext(chunk -> log.debug("AI回复片段: sessionId={}, chunk={}", request.getSessionId(), chunk))
+                .doOnNext(chunk -> {
+                    // 收集完整回复
+                    fullResponse.append(chunk);
+                    log.debug("[CTRL-STREAM] 收到chunk: '{}', 长度={}", chunk, chunk.length());
+                })
+                .doOnComplete(() -> {
+                    // 保存完整的AI回复到Redis（异步执行）
+                    String sessionId = request.getSessionId();
+                    String content = fullResponse.toString();
+                    log.info("[DEBUG-CTRL-SAVE] 保存AI回复: sessionId={}, length={}", sessionId, content.length());
+
+                    com.hundred.monitor.commonlibrary.ai.model.ChatMessage aiMsg =
+                            com.hundred.monitor.commonlibrary.ai.model.ChatMessage.builder()
+                                    .role("assistant")
+                                    .content(content)
+                                    .timestamp(java.time.Instant.now().toEpochMilli())
+                                    .build();
+
+                    chatService.getRedisUtils().addMessage(sessionId, aiMsg)
+                            .doOnSuccess(count -> log.info("[DEBUG-CTRL-SAVE] AI消息保存成功: count={}", count))
+                            .doOnError(e -> log.error("[DEBUG-CTRL-SAVE] AI消息保存失败", e))
+                            .subscribe();
+                })
+                // 不添加 SSE 格式，直接发送原始 chunk
+                .doOnSubscribe(subscription -> log.info("[DEBUG-CTRL-1] Flux被订阅: sessionId={}", request.getSessionId()))
                 .doOnError(e -> log.error("发送消息失败: sessionId={}, userId={}, message={}",
                         request.getSessionId(), userId, request.getMessage(), e))
-                .onErrorResume(e -> Flux.just("data: [ERROR] 发送消息失败\n\n"));
+                .onErrorResume(e -> Flux.just("[ERROR] 发送消息失败"));
     }
 
 

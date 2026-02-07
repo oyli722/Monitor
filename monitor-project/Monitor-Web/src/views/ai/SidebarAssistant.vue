@@ -342,21 +342,33 @@ const handleSendMessage = async (content: string) => {
       },
       // onChunk: 接收流式数据
       (chunk: string) => {
-        console.log('[SidebarAssistant] Received chunk:', chunk)
+        console.log('[SidebarAssistant] onChunk called, chunk:', chunk)
+        console.log('[SidebarAssistant] assistantMessageId:', assistantMessageId)
+        console.log('[SidebarAssistant] current messages count:', messages.value.length)
+
         // 更新AI消息内容
         const msgIndex = messages.value.findIndex(m => m.id === assistantMessageId)
+        console.log('[SidebarAssistant] found message index:', msgIndex)
+
         if (msgIndex !== -1 && messages.value[msgIndex]) {
+          console.log('[SidebarAssistant] Updating message content from:', messages.value[msgIndex].content)
+
+          // 直接追加 chunk（后端已经是流式发送的）
           messages.value[msgIndex].content += chunk
-          // 自动滚动到底部
           scrollToBottom()
+
+          console.log('[SidebarAssistant] Updated message content to:', messages.value[msgIndex].content)
+        } else {
+          console.error('[SidebarAssistant] Message not found! msgIndex:', msgIndex)
         }
       },
       // onComplete: 流式传输完成
       () => {
-        console.log('[SidebarAssistant] Stream completed')
+        console.log('[SidebarAssistant] onComplete called')
         isLoading.value = false
         // 延迟刷新会话列表，避免与消息更新冲突
         nextTick(() => {
+          console.log('[SidebarAssistant] Refreshing sessions...')
           loadSessions().catch(err => {
             console.warn('[SidebarAssistant] Failed to refresh sessions:', err)
           })
@@ -364,7 +376,7 @@ const handleSendMessage = async (content: string) => {
       },
       // onError: 错误处理
       (error: Error) => {
-        console.error('[SidebarAssistant] Stream error:', error)
+        console.error('[SidebarAssistant] onError called:', error)
         isLoading.value = false
 
         // 更新AI消息为错误提示
