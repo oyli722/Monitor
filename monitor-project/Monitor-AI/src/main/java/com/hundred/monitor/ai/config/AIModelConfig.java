@@ -85,12 +85,12 @@ public class AIModelConfig {
     @Primary
     public ChatAssistant defaultOpenAiChatAssistant() {
         log.info("初始化默认ChatAssistant: {}", ollamaModelName);
-        OpenAiChatModel defaultOpenAiChatModel = OpenAiChatModel.builder()
+        OpenAiStreamingChatModel defaultOpenAiChatModel = OpenAiStreamingChatModel.builder()
                 .modelName(ollamaModelName)
                 .baseUrl(ollamaBaseUrl)
                 .build();
         return AiServices.builder(ChatAssistant.class)
-                .chatLanguageModel(defaultOpenAiChatModel)
+                .streamingChatLanguageModel(defaultOpenAiChatModel)
                 // TODO 调用工具
                 .build();
     }
@@ -101,13 +101,13 @@ public class AIModelConfig {
     @Bean(name = "glmAiChatAssistant")
     public ChatAssistant glmAiChatAssistant() {
         log.info("初始化GLM-4.7模型");
-        OpenAiChatModel build = OpenAiChatModel.builder()
+        OpenAiStreamingChatModel build = OpenAiStreamingChatModel.builder()
                 .modelName(glmModelName)
                 .baseUrl(glmBaseUrl)
                 .apiKey(glmApiKey)
                 .build();
         return AiServices.builder(ChatAssistant.class)
-                .chatLanguageModel(build)
+                .streamingChatLanguageModel(build)
                 // TODO 调用工具
                 .build();
     }
@@ -118,12 +118,12 @@ public class AIModelConfig {
     @Bean(name = "ollamaAiChatAssistant")
     public ChatAssistant ollamaAiChatAssistant() {
         log.info("初始化Ollama模型: {}", ollamaModelName);
-        OpenAiChatModel build = OpenAiChatModel.builder()
+        OpenAiStreamingChatModel build = OpenAiStreamingChatModel.builder()
                 .modelName(ollamaModelName)
                 .baseUrl(ollamaBaseUrl)
                 .build();
         return AiServices.builder(ChatAssistant.class)
-                .chatLanguageModel(build)
+                .streamingChatLanguageModel(build)
                 // TODO 调用工具
                 .build();
     }
