@@ -6,27 +6,27 @@ import reactor.core.publisher.Flux;
 
 /**
  * 该模块下的聊天助手，实现非阻塞式传输，支持工具调用
- *
+ * 消息格式：JSON字符串，例如：[{"role":"system","message":"你是一个..."},{"role":"user","message":"你好"}]
  */
 public interface ChatAssistant {
-    /**
-     * 发送消息并获取AI回复
-     * 此方法会被LangChain4j自动实现，支持工具调用
-     *
-     * @param userMessage 用户消息
-     * @return AI回复
-     */
-    @SystemMessage("{{systemPrompt}}")
-    Flux<String> chat(@UserMessage String userMessage);
 
     /**
-     * 发送带系统提示词的消息
+     * 聊天对话（使用默认系统提示词）
+     *
+     * @param messagesJson 消息列表的JSON字符串格式
+     *                    例如：[{"role":"system","message":"..."},{"role":"user","message":"..."}]
+     * @return AI回复流
+     */
+    @SystemMessage("{{systemPrompt}}")
+    Flux<String> chat(@UserMessage String messagesJson);
+
+    /**
+     * 聊天对话（指定系统提示词）
      *
      * @param systemPrompt 系统提示词
-     * @param userMessage 用户消息
-     * @return AI回复
+     * @param messagesJson  消息列表的JSON字符串格式
+     * @return AI回复流
      */
     @SystemMessage("{{systemPrompt}}")
-    Flux<String> chat(@dev.langchain4j.service.V("systemPrompt") String systemPrompt, @UserMessage String userMessage);
-
+    Flux<String> chat(@dev.langchain4j.service.V("systemPrompt") String systemPrompt, @UserMessage String messagesJson);
 }

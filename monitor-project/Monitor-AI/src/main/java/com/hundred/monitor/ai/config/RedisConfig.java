@@ -9,9 +9,13 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 /**
@@ -22,16 +26,10 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @Configuration
 public class RedisConfig {
 
-    /**
-     * 配置RedisTemplate
-     * 使用Jackson2JsonRedisSerializer进行序列化
-     */
-    @Bean
-    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
-        log.info("初始化RedisTemplate");
 
-        RedisTemplate<String, Object> template = new RedisTemplate<>();
-        template.setConnectionFactory(connectionFactory);
+    @Bean
+    public RedisSerializationContext redisSerializationContext() {
+
 
         // 创建配置好的 ObjectMapper
         ObjectMapper mapper = new ObjectMapper();
@@ -48,22 +46,24 @@ public class RedisConfig {
         Jackson2JsonRedisSerializer<Object> serializer = new Jackson2JsonRedisSerializer<>(
                 mapper,
                 Object.class
-                );
-
+        );
 
         // 使用StringRedisSerializer来序列化和反序列化redis的key值
         StringRedisSerializer stringSerializer = new StringRedisSerializer();
 
-        // key采用String的序列化方式
-        template.setKeySerializer(stringSerializer);
-        // hash的key也采用String的序列化方式
-        template.setHashKeySerializer(stringSerializer);
-        // value序列化方式采用jackson
-        template.setValueSerializer(serializer);
-        // hash的value序列化方式采用jackson
-        template.setHashValueSerializer(serializer);
+        RedisSerializationContext.RedisSerializationContextBuilder builder = RedisSerializationContext.newSerializationContext();
+        builder.key(stringSerializer);
+        builder.value(serializer);
+        builder.hashKey(stringSerializer);
+        builder.hashValue(serializer);
 
-        template.afterPropertiesSet();
-        return template;
+        return builder.build();
+    }
+
+    @Bean
+    public ReactiveRedisTemplate reactiveRedisTemplate(ReactiveRedisConnectionFactory connectionFactory) {
+        RedisSerializationContext serializationContext = redisSerializationContext();
+        ReactiveRedisTemplate reactiveRedisTemplate = new ReactiveRedisTemplate(connectionFactory,serializationContext);
+        return reactiveRedisTemplate;
     }
 }

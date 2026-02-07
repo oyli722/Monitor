@@ -119,6 +119,7 @@ import {
   getChatMessages,
   sendChatMessage
 } from '@/api/ai'
+import { ChatSessionAPI } from '@/api/ai'
 
 // 会话列表
 const sessions = ref<SessionInfo[]>([])
@@ -280,7 +281,7 @@ const loadMessages = async (sessionId: string) => {
   }
 }
 
-// 发送消息
+// 发送消息（流式）
 const handleSendMessage = async (content: string) => {
   console.log('[SidebarAssistant] handleSendMessage called, content:', content)
 
@@ -318,44 +319,70 @@ const handleSendMessage = async (content: string) => {
   messages.value.push(userMessage)
   scrollToBottom()
 
-  // 发送消息并获取AI回复
+  // 创建AI消息（用于流式显示）
+  const assistantMessageId = generateMessageId()
+  const assistantMessage: ChatMessageType = {
+    id: assistantMessageId,
+    role: 'assistant',
+    content: '',
+    timestamp: Date.now()
+  }
+  messages.value.push(assistantMessage)
+  scrollToBottom()
+
+  // 发送流式消息
   isLoading.value = true
   try {
-    console.log('[SidebarAssistant] Sending message to session:', currentSessionId.value)
-    const response = await sendChatMessage({
-      sessionId: currentSessionId.value,
-      message: content
-    })
-    console.log('[SidebarAssistant] Received response:', response)
+    console.log('[SidebarAssistant] Sending stream message to session:', currentSessionId.value)
 
-    // 验证响应数据
-    if (!response || !response.reply) {
-      throw new Error('AI回复格式错误')
-    }
+    await ChatSessionAPI.sendMessageStream(
+      {
+        sessionId: currentSessionId.value,
+        message: content
+      },
+      // onChunk: 接收流式数据
+      (chunk: string) => {
+        console.log('[SidebarAssistant] Received chunk:', chunk)
+        // 更新AI消息内容
+        const msgIndex = messages.value.findIndex(m => m.id === assistantMessageId)
+        if (msgIndex !== -1 && messages.value[msgIndex]) {
+          messages.value[msgIndex].content += chunk
+          // 自动滚动到底部
+          scrollToBottom()
+        }
+      },
+      // onComplete: 流式传输完成
+      () => {
+        console.log('[SidebarAssistant] Stream completed')
+        isLoading.value = false
+        // 延迟刷新会话列表，避免与消息更新冲突
+        nextTick(() => {
+          loadSessions().catch(err => {
+            console.warn('[SidebarAssistant] Failed to refresh sessions:', err)
+          })
+        })
+      },
+      // onError: 错误处理
+      (error: Error) => {
+        console.error('[SidebarAssistant] Stream error:', error)
+        isLoading.value = false
 
-    // 添加AI回复
-    const assistantMessage: ChatMessageType = {
-      id: generateMessageId(),
-      role: 'assistant',
-      content: response.reply,
-      timestamp: response.message?.timestamp || Date.now()
-    }
-    messages.value.push(assistantMessage)
+        // 更新AI消息为错误提示
+        const msgIndex = messages.value.findIndex(m => m.id === assistantMessageId)
+        if (msgIndex !== -1 && messages.value[msgIndex]) {
+          messages.value[msgIndex].content = '抱歉，发生了错误：' + error.message
+        }
 
-    // 延迟刷新会话列表，避免与消息更新冲突
-    await nextTick()
-    await loadSessions().catch(err => {
-      console.warn('[SidebarAssistant] Failed to refresh sessions:', err)
-    })
-
-    scrollToBottom()
+        ElMessage.error('发送消息失败: ' + error.message)
+      }
+    )
   } catch (error: any) {
     console.error('[SidebarAssistant] Send message error:', error)
-    ElMessage.error('发送消息失败: ' + (error.message || '未知错误'))
-    // 移除用户消息
-    messages.value.pop()
-  } finally {
     isLoading.value = false
+    ElMessage.error('发送消息失败: ' + (error.message || '未知错误'))
+    // 移除用户消息和AI消息
+    messages.value.pop()
+    messages.value.pop()
   }
 }
 

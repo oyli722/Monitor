@@ -14,13 +14,14 @@ import com.hundred.monitor.commonlibrary.common.BaseResponse;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * AI聊天控制器 - 处理AI对话相关请求（侧边栏AI助手 - HTTP REST API）
@@ -45,18 +46,15 @@ public class ChatController {
     private String getUserIdFromAuth(String authHeader) {
         // TODO: 完善JWT解析逻辑
         // 当前简单实现：如果提供了Token则解析，否则使用默认用户
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
-            if (jwtConfig.validateToken(token)) {
-                return jwtConfig.getUserIdFromToken(token);
-            }
-        }
+//        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+//            String token = authHeader.substring(7);
+//            if (jwtConfig.validateToken(token)) {
+//                return jwtConfig.getUserIdFromToken(token);
+//            }
+//        }
         return"default-user";
     }
 
-    private Mono<String> getUserIdReactive(String authHeader) {
-        return Mono.fromCallable(() -> getUserIdFromAuth(authHeader));
-    }
 
     /**
      * 创建新会话
@@ -68,17 +66,25 @@ public class ChatController {
     public Mono<BaseResponse<CreateSessionResponse>> createSession(
             @RequestBody @Valid CreateSessionRequest request,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        String userId = getUserIdFromAuth(authHeader);
 
-        return Mono.fromCallable(() -> getUserIdFromAuth(authHeader))
-                .flatMap(userId -> chatService.getUserSessionsReactive(userId))  // 需要响应式版本
-                .map(sessions -> sessions.stream()
-                        .map(this::toSessionInfoResponse)
-                        .collect(Collectors.toList()))
+        return chatService.createSession(userId, request.getFirstMessage())
+                .flatMap(sessionId -> {
+                    // 如果有agentId，关联主机
+                    if (request.getAgentId() != null && !request.getAgentId().isEmpty()) {
+                        return chatService.linkAgent(sessionId, request.getAgentId())
+                                .thenReturn(sessionId);
+                    }
+                    return Mono.just(sessionId);
+                })
+                .flatMap(sessionId -> chatService.getSession(sessionId)
+                        .map(sessionInfo -> CreateSessionResponse.builder()
+                                .sessionId(sessionInfo.getSessionId())
+                                .title(sessionInfo.getTitle())
+                                .build()))
                 .map(BaseResponse::success)
-                .onErrorResume(e -> {
-                    log.error("获取会话列表失败", e);
-                    return Mono.just(BaseResponse.error("获取会话列表失败: " + e.getMessage()));
-                });
+                .doOnError(e -> log.error("创建会话失败: userId={}, firstMessage={}", userId, request.getFirstMessage(), e))
+                .onErrorReturn(BaseResponse.error("创建会话失败"));
     }
 
     /**
@@ -89,17 +95,15 @@ public class ChatController {
     @GetMapping("/sessions")
     public Mono<BaseResponse<List<SessionInfoResponse>>> getSessions(
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        String userId = getUserIdFromAuth(authHeader);
 
-        return Mono.fromCallable(() -> getUserIdFromAuth(authHeader))
-                .flatMap(userId -> chatService.getUserSessionsReactive(userId))  // 需要响应式版本
+        return chatService.getUserSessions(userId)
                 .map(sessions -> sessions.stream()
                         .map(this::toSessionInfoResponse)
-                        .collect(Collectors.toList()))
+                        .toList())
                 .map(BaseResponse::success)
-                .onErrorResume(e -> {
-                    log.error("获取会话列表失败", e);
-                    return Mono.just(BaseResponse.error("获取会话列表失败: " + e.getMessage()));
-                });
+                .doOnError(e -> log.error("获取用户会话列表失败: userId={}", userId, e))
+                .onErrorReturn(BaseResponse.error("获取会话列表失败"));
     }
     /**
      * 获取会话详情
@@ -108,20 +112,15 @@ public class ChatController {
      * @return 会话信息
      */
     @GetMapping("/sessions/{sessionId}")
-    public BaseResponse<SessionInfoResponse> getSession(
+    public Mono<BaseResponse<SessionInfoResponse>> getSession(
             @PathVariable String sessionId,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
-        try {
-            ChatSessionInfo sessionInfo = chatService.getSession(sessionId);
-            if (sessionInfo == null) {
-                return BaseResponse.notFound("会话不存在");
-            }
-
-            return BaseResponse.success(toSessionInfoResponse(sessionInfo));
-        } catch (Exception e) {
-            log.error("获取会话详情失败: sessionId={}", sessionId, e);
-            return BaseResponse.error("获取会话详情失败: " + e.getMessage());
-        }
+        return chatService.getSession(sessionId)
+                .map(this::toSessionInfoResponse)
+                .map(BaseResponse::success)
+                .switchIfEmpty(Mono.just(BaseResponse.notFound("会话不存在")))
+                .doOnError(e -> log.error("获取会话详情失败: sessionId={}", sessionId, e))
+                .onErrorReturn(BaseResponse.error("获取会话详情失败"));
     }
 
     /**
@@ -131,18 +130,17 @@ public class ChatController {
      * @return 操作结果
      */
     @DeleteMapping("/sessions/{sessionId}")
-    public BaseResponse<Void> deleteSession(
+    public Mono<BaseResponse<Void>> deleteSession(
             @PathVariable String sessionId,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
-        try {
-            String userId = getUserIdFromAuth(authHeader);
+        String userId = getUserIdFromAuth(authHeader);
+        BaseResponse<Void> successResponse = BaseResponse.success();
+        BaseResponse<Void> errorResponse = errorResponse("删除会话失败");
 
-            chatService.deleteSession(userId, sessionId);
-            return BaseResponse.success();
-        } catch (Exception e) {
-            log.error("删除会话失败: sessionId={}", sessionId, e);
-            return BaseResponse.error("删除会话失败: " + e.getMessage());
-        }
+        return chatService.deleteSession(userId, sessionId)
+                .thenReturn(successResponse)
+                .doOnError(e -> log.error("删除会话失败: userId={}, sessionId={}", userId, sessionId, e))
+                .onErrorResume(e -> Mono.just(errorResponse));
     }
 
     /**
@@ -152,76 +150,38 @@ public class ChatController {
      * @return 消息列表
      */
     @GetMapping("/sessions/{sessionId}/messages")
-    public BaseResponse<List<ChatMessageResponse>> getMessages(
+    public Mono<BaseResponse<List<ChatMessageResponse>>> getMessages(
             @PathVariable String sessionId,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
-        try {
-            List<ChatMessage> messages = chatService.getMessages(sessionId);
-
-            List<ChatMessageResponse> responseList = messages.stream()
-                    .map(this::toChatMessageResponse)
-                    .collect(Collectors.toList());
-
-            return BaseResponse.success(responseList);
-        } catch (Exception e) {
-            log.error("获取消息历史失败: sessionId={}", sessionId, e);
-            return BaseResponse.error("获取消息历史失败: " + e.getMessage());
-        }
+        return chatService.getMessagesAsList(sessionId)
+                .map(messages -> messages.stream()
+                        .map(this::toChatMessageResponse)
+                        .toList())
+                .map(BaseResponse::success)
+                .doOnError(e -> log.error("获取消息历史失败: sessionId={}", sessionId, e))
+                .onErrorReturn(BaseResponse.error("获取消息历史失败"));
     }
 
     /**
-     * 发送消息并获取AI回复
+     * 发送消息并获取AI回复（SSE流式输出）
      *
      * @param request 发送消息请求
-     * @return AI回复
+     * @return AI回复流
      */
-    @PostMapping("/messages")
-    public Flux<BaseResponse<ChatResponse>> sendMessage(
+    @PostMapping(value = "/messages", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> sendMessage(
             @RequestBody @Valid SendMessageRequest request,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
-
         String userId = getUserIdFromAuth(authHeader);
 
-        return chatService.sendMessage(
-                        request.getSessionId(),
-                        userId,
-                        request.getMessage(),
-                        request.getModelName()
-                ).map(
-                        reply -> {
-                            ChatMessageResponse message = ChatMessageResponse.builder()
-                                    .role("assistant")
-                                    .content(reply)
-                                    .timestamp(System.currentTimeMillis())
-                                    .build();
-                            ChatResponse response = ChatResponse.builder()
-                                    .sessionId(request.getSessionId())
-                                    .reply(reply)
-                                    .message(message)
-                                    .build();
-                            return BaseResponse.success(response);
-                        }
-                )
-                .onErrorResume(throwable -> {
-                    // 1. 记录日志
-                    log.error("发送消息失败: sessionId={}, userId={}",
-                            request.getSessionId(), userId, throwable);
-
-                    // 2. 返回错误响应流
-                    ChatResponse errorResponse = ChatResponse.builder()
-                            .sessionId(request.getSessionId())
-                            .reply("服务暂时不可用，请稍后重试")
-                            .build();
-
-                    return Flux.just(BaseResponse.error(
-                            HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                            "消息发送失败",
-                            errorResponse
-                    ));
-                });
+        return chatService.sendMessage(request.getSessionId(), userId, request.getMessage(), request.getModelName())
+                .doOnNext(chunk -> log.debug("AI回复片段: sessionId={}, chunk={}", request.getSessionId(), chunk))
+                .doOnError(e -> log.error("发送消息失败: sessionId={}, userId={}, message={}",
+                        request.getSessionId(), userId, request.getMessage(), e))
+                .onErrorResume(e -> Flux.just("data: [ERROR] 发送消息失败\n\n"));
     }
 
-    ;
+
 
 
     /**
@@ -231,16 +191,16 @@ public class ChatController {
      * @return 操作结果
      */
     @DeleteMapping("/sessions/{sessionId}/messages")
-    public BaseResponse<Void> clearMessages(
+    public Mono<BaseResponse<Void>> clearMessages(
             @PathVariable String sessionId,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
-        try {
-            chatService.clearMessages(sessionId);
-            return BaseResponse.success();
-        } catch (Exception e) {
-            log.error("清空消息失败: sessionId={}", sessionId, e);
-            return BaseResponse.error("清空消息失败: " + e.getMessage());
-        }
+        BaseResponse<Void> successResponse = BaseResponse.success();
+        BaseResponse<Void> errorResponse = errorResponse("清空消息失败");
+
+        return chatService.clearMessages(sessionId)
+                .thenReturn(successResponse)
+                .doOnError(e -> log.error("清空消息失败: sessionId={}", sessionId, e))
+                .onErrorResume(e -> Mono.just(errorResponse));
     }
 
     /**
@@ -251,17 +211,17 @@ public class ChatController {
      * @return 操作结果
      */
     @PostMapping("/sessions/{sessionId}/link")
-    public BaseResponse<Void> linkAgent(
+    public Mono<BaseResponse<Void>> linkAgent(
             @PathVariable String sessionId,
             @RequestParam String agentId,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
-        try {
-            chatService.linkAgent(sessionId, agentId);
-            return BaseResponse.success();
-        } catch (Exception e) {
-            log.error("关联主机失败: sessionId={}, agentId={}", sessionId, agentId, e);
-            return BaseResponse.error("关联主机失败: " + e.getMessage());
-        }
+        BaseResponse<Void> successResponse = BaseResponse.success();
+        BaseResponse<Void> errorResponse = errorResponse("关联主机失败");
+
+        return chatService.linkAgent(sessionId, agentId)
+                .thenReturn(successResponse)
+                .doOnError(e -> log.error("关联主机失败: sessionId={}, agentId={}", sessionId, agentId, e))
+                .onErrorResume(e -> Mono.just(errorResponse));
     }
 
     // ==================== 转换方法 ====================
@@ -288,5 +248,12 @@ public class ChatController {
                 .content(message.getContent())
                 .timestamp(message.getTimestamp())
                 .build();
+    }
+
+    /**
+     * 创建错误响应（Void类型）
+     */
+    private BaseResponse<Void> errorResponse(String message) {
+        return BaseResponse.error(BaseResponse.INTERNAL_SERVER_ERROR_CODE, message);
     }
 }

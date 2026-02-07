@@ -3,22 +3,22 @@ package com.hundred.monitor.ai.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.web.filter.CorsFilter;
+import org.springframework.web.cors.reactive.CorsWebFilter;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
 
 /**
- * CORS跨域配置
+ * CORS跨域配置（WebFlux响应式）
  */
 @Configuration
 public class CorsConfig {
 
     /**
-     * CORS配置
+     * CORS配置（响应式）
      */
     @Bean
-    public CorsFilter corsFilter() {
+    public CorsWebFilter corsWebFilter() {
         CorsConfiguration config = new CorsConfiguration();
 
         // 允许的源
@@ -58,6 +58,6 @@ public class CorsConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
 
-        return new CorsFilter(source);
+        return new CorsWebFilter(source);
     }
 }

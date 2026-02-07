@@ -116,7 +116,79 @@ export class ChatSessionAPI {
   }
 
   /**
-   * 发送消息并获取AI回复
+   * 发送消息并获取AI回复（流式SSE）
+   * @param data 发送消息请求参数
+   * @param onChunk 接收流式数据的回调函数
+   * @param onComplete 完成回调函数
+   * @param onError 错误回调函数
+   */
+  static async sendMessageStream(
+    data: SendMessageRequest,
+    onChunk: (chunk: string) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): Promise<void> {
+    try {
+      // 获取 AI 服务的 base URL
+      const baseURL = import.meta.env.VITE_AI_API_BASE_URL || 'http://localhost:8081/api'
+      const url = `${baseURL}/chat/messages`
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        },
+        body: JSON.stringify(data)
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('Response body is not readable')
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        // 处理 SSE 格式数据
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || '' // 保留最后一个不完整的行
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim()
+            if (data === '[DONE]') {
+              onComplete()
+              return
+            }
+            if (data && !data.startsWith('[ERROR]')) {
+              onChunk(data)
+            } else if (data.startsWith('[ERROR]')) {
+              onError(new Error(data.slice(8)))
+              return
+            }
+          }
+        }
+      }
+
+      onComplete()
+    } catch (error) {
+      onError(error as Error)
+    }
+  }
+
+  /**
+   * 发送消息并获取AI回复（非流式，兼容旧接口）
    * @param data 发送消息请求参数
    * @returns AI回复
    */
