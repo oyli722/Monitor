@@ -28,7 +28,8 @@ public class ReactiveJwtAuthenticationConverter implements Converter<Jwt, Mono<A
 
     @Override
     public Mono<AbstractAuthenticationToken> convert(Jwt jwt) {
-        log.debug("转换JWT为认证对象: {}", jwt.getSubject());
+        log.info("========== JWT转换开始 ==========");
+        log.info("Subject: {}, Claims: {}", jwt.getSubject(), jwt.getClaims().keySet());
 
         // 注意：JWT签名验证由ReactiveJwtDecoder完成，这里不需要重复验证
 
@@ -44,6 +45,9 @@ public class ReactiveJwtAuthenticationConverter implements Converter<Jwt, Mono<A
                 authorities,
                 username
         );
+
+        log.info("认证对象创建完成: principal={}, authorities={}", authentication.getPrincipal(), authorities);
+        log.info("========== JWT转换完成 ==========");
 
         return Mono.just(authentication);
     }

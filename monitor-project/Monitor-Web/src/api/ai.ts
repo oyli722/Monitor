@@ -4,6 +4,7 @@
 
 import request from '@/utils/request'
 import aiRequest from '@/utils/ai-request'
+import { useAuthStore } from '@/stores/auth'
 import type {
   ConnectAIRequest,
   ConnectAIResponse,
@@ -136,12 +137,23 @@ export class ChatSessionAPI {
       console.log('[sendMessageStream] Sending request to:', url)
       console.log('[sendMessageStream] Request data:', data)
 
+      // 获取token并添加到headers
+      const authStore = useAuthStore()
+      const token = authStore.token
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+        console.log('[sendMessageStream] Using token:', token.substring(0, 20) + '...')
+      } else {
+        console.warn('[sendMessageStream] No token found!')
+      }
+
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream'
-        },
+        headers,
         body: JSON.stringify(data)
       })
 

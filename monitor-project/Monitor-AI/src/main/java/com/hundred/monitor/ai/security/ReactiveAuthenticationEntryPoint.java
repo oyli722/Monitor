@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.server.ServerAuthenticationEntryPoint;
@@ -28,7 +29,13 @@ public class ReactiveAuthenticationEntryPoint implements ServerAuthenticationEnt
 
     @Override
     public Mono<Void> commence(ServerWebExchange exchange, AuthenticationException authException) {
-        log.warn("认证失败: {}", authException.getMessage());
+        ServerHttpRequest request = exchange.getRequest();
+        log.warn("========== 认证失败 ==========");
+        log.warn("请求: {} {}", request.getMethod(), request.getURI().getPath());
+        log.warn("Origin: {}", request.getHeaders().getFirst("Origin"));
+        log.warn("Authorization: {}", request.getHeaders().getFirst("Authorization") != null ? "存在" : "无");
+        log.warn("异常: {} - {}", authException.getClass().getSimpleName(), authException.getMessage());
+        log.warn("============================");
 
         ServerHttpResponse response = exchange.getResponse();
         response.setStatusCode(HttpStatus.UNAUTHORIZED);
