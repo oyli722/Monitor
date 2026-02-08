@@ -888,8 +888,306 @@ return assistant.chat(messagesJson)
 | 低 | 未使用导入 | GlobalExceptionHandler中未使用导入 |
 | 低 | 代码风格 | 无意义的空操作、冗余注释 |
 
+### 9.4 Reactive Spring Security 实现（2026-02-08）
+
+#### 背景
+
+Monitor-AI 模块需要实现基于 JWT 的认证机制，确保只有持有有效 token 的用户才能访问 AI 服务。
+
+#### 实现内容
+
+**1. 新增 Security 包结构**
+
+```
+Monitor-AI/src/main/java/com/hundred/monitor/ai/security/
+├── MonitorAISecurityConfig.java              主Security配置
+├── ReactiveJwtAuthenticationConverter.java   JWT转Authentication转换器
+├── ReactiveAuthenticationEntryPoint.java     401认证失败处理
+└── ReactiveAccessDeniedHandler.java          403权限拒绝处理
+```
+
+**2. MonitorAISecurityConfig.java**
+
+核心配置类，实现 JWT 资源服务器模式：
+
+```java
+@Slf4j
+@Configuration
+@EnableWebFluxSecurity
+@EnableReactiveMethodSecurity
+public class MonitorAISecurityConfig {
+
+    @Bean
+    public SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
+        http
+            .csrf(ServerHttpSecurity.CsrfSpec::disable)
+            .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
+            .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
+            .cors(ServerHttpSecurity.CorsSpec::disable)  // 使用独立CorsWebFilter
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .jwtAuthenticationConverter(jwtAuthenticationConverter)
+                    .jwtDecoder(jwtDecoder())
+                )
+                .authenticationEntryPoint(authenticationEntryPoint)
+            )
+            .exceptionHandling(exception -> exception
+                .authenticationEntryPoint(authenticationEntryPoint)
+                .accessDeniedHandler(accessDeniedHandler)
+            )
+            .authorizeExchange(exchanges -> exchanges
+                .pathMatchers(HttpMethod.OPTIONS).permitAll()  // CORS预检
+                .anyExchange().authenticated()
+            );
+
+        return http.build();
+    }
+
+    @Bean
+    public ReactiveJwtDecoder jwtDecoder() {
+        SecretKey secretKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+        return NimbusReactiveJwtDecoder.withSecretKey(secretKey).build();
+    }
+
+    @Bean
+    public CorsWebFilter corsWebFilter() {
+        // CORS配置...
+    }
+}
+```
+
+**关键特性**：
+- 使用对称密钥（HMAC-SHA256）验证 JWT 签名
+- 与 Monitor-Server 共享 `jwt.secret` 配置
+- 所有端点都需要认证（除 OPTIONS 预检请求）
+- 独立的 CorsWebFilter 处理跨域
+
+**3. ReactiveJwtAuthenticationConverter.java**
+
+将 JWT token 转换为 Spring Security Authentication 对象：
+
+```java
+@Component
+public class ReactiveJwtAuthenticationConverter implements Converter<Jwt, Mono<AbstractAuthenticationToken>> {
+
+    @Override
+    public Mono<AbstractAuthenticationToken> convert(Jwt jwt) {
+        log.info("========== JWT转换开始 ==========");
+        log.info("Subject: {}, Claims: {}", jwt.getSubject(), jwt.getClaims().keySet());
+
+        String username = jwt.getSubject();
+        Collection<GrantedAuthority> authorities = extractAuthorities(jwt);
+
+        JwtAuthenticationToken authentication = new JwtAuthenticationToken(
+            jwt, authorities, username
+        );
+
+        log.info("认证对象创建完成: principal={}, authorities={}", authentication.getPrincipal(), authorities);
+        return Mono.just(authentication);
+    }
+
+    private Collection<GrantedAuthority> extractAuthorities(Jwt jwt) {
+        // 从scope或roles claim提取权限
+    }
+}
+```
+
+**注意**：JWT 签名验证由 `ReactiveJwtDecoder` 完成，转换器只负责提取信息和创建认证对象。
+
+**4. ReactiveAuthenticationEntryPoint.java**
+
+处理 401 未授权响应，带有详细调试日志：
+
+```java
+@Component
+public class ReactiveAuthenticationEntryPoint implements ServerAuthenticationEntryPoint {
+
+    @Override
+    public Mono<Void> commence(ServerWebExchange exchange, AuthenticationException authException) {
+        ServerHttpRequest request = exchange.getRequest();
+        log.warn("========== 认证失败 ==========");
+        log.warn("请求: {} {}", request.getMethod(), request.getURI().getPath());
+        log.warn("Origin: {}", request.getHeaders().getFirst("Origin"));
+        log.warn("Authorization: {}", request.getHeaders().getFirst("Authorization") != null ? "存在" : "无");
+        log.warn("异常: {} - {}", authException.getClass().getSimpleName(), authException.getMessage());
+
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+
+        BaseResponse<Void> errorResponse = BaseResponse.error(
+            HttpStatus.UNAUTHORIZED.value(),
+            "未授权访问，请提供有效的JWT token"
+        );
+
+        return writeResponse(response, errorResponse);
+    }
+}
+```
+
+**5. 依赖配置**
+
+在 `pom.xml` 中添加 OAuth2 Resource Server 依赖：
+
+```xml
+<!-- OAuth2 Resource Server for JWT -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+</dependency>
+```
+
+#### 遇到的问题与解决
+
+**问题1：缺少 ReactiveJwtDecoder Bean**
+
+错误信息：
+```
+No qualifying bean of type 'org.springframework.security.oauth2.jwt.ReactiveJwtDecoder' available
+```
+
+解决方案：在 `MonitorAISecurityConfig` 中添加 `jwtDecoder()` bean。
+
+**问题2：CORS 预检请求被拦截**
+
+错误信息：
+```
+Access to XMLHttpRequest blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present
+```
+
+解决方案：在 Security 配置中允许 OPTIONS 请求：
+```java
+.pathMatchers(HttpMethod.OPTIONS).permitAll()
+```
+
+**问题3：Authorization header 未发送**
+
+后端日志显示：
+```
+Authorization: 无
+异常: AuthenticationCredentialsNotFoundException - Not Authenticated
+```
+
+**根本原因**：前端 `ai.ts` 的 `sendMessageStream` 方法使用原生 `fetch()` API，没有携带 Authorization header。
+
+**解决方案**：见下节"前端 JWT Token 传输修复"。
+
+### 9.5 前端 JWT Token 传输修复（2026-02-08）
+
+#### 问题分析
+
+前端 `Monitor-Web/src/api/ai.ts` 中的 `sendMessageStream` 方法使用原生 `fetch()` API 发送 SSE 请求，但没有携带 JWT token：
+
+```typescript
+// 问题代码（修复前）
+static async sendMessageStream(...) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream'
+      // ❌ 缺少 Authorization header
+    },
+    body: JSON.stringify(data)
+  })
+  // ...
+}
+```
+
+其他 AI 端点使用 `aiRequest`（axios 实例），该实例有拦截器自动添加 token，因此能正常工作。
+
+#### 解决方案
+
+**修改文件**：`Monitor-Web/src/api/ai.ts`
+
+**修改内容**：
+
+```typescript
+static async sendMessageStream(
+  data: SendMessageRequest,
+  onChunk: (chunk: string) => void,
+  onComplete: () => void,
+  onError: (error: Error) => void
+): Promise<void> {
+  try {
+    const baseURL = import.meta.env.VITE_AI_API_BASE_URL || 'http://localhost:8081/api'
+    const url = `${baseURL}/chat/messages`
+
+    // ✅ 获取 token 并添加到 headers
+    const authStore = useAuthStore()
+    const token = authStore.token
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream'
+    }
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+      console.log('[sendMessageStream] Using token:', token.substring(0, 20) + '...')
+    } else {
+      console.warn('[sendMessageStream] No token found!')
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,  // ✅ 包含 Authorization 的 headers
+      body: JSON.stringify(data)
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    // SSE 流处理逻辑...
+  } catch (error) {
+    console.error('[sendMessageStream] Error:', error)
+    onError(error as Error)
+  }
+}
+```
+
+**关键变更**：
+1. 导入 `useAuthStore` 从 `@/stores/auth`
+2. 从 store 中获取 token
+3. 如果 token 存在，添加 `Authorization: Bearer ${token}` header
+4. 添加调试日志输出 token 状态
+
+#### 验证结果
+
+修复后，后端日志显示：
+```
+Authorization: 存在
+========== JWT转换开始 ==========
+Subject: user123, Claims: [...]
+认证对象创建完成: principal=...
+========== JWT转换完成 ==========
+```
+
+AI 聊天功能恢复正常。
+
+### 9.6 执行状态更新
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| 阶段1：创建基础设施 | ✅ 完成 | 7个文件创建成功 |
+| 阶段2：全局异常处理器 | ✅ 完成 | GlobalExceptionHandler创建 |
+| 阶段3：代码重构 | ✅ 完成 | ChatService、ChatController重构 |
+| 阶段4：清理工作 | ✅ 完成 | TODO注释、FeignConfig删除 |
+| 额外修复：注入方式问题 | ✅ 完成 | @Resource改为@Autowired |
+| 额外修复：blockLast阻塞 | ✅ 完成 | generateSummary完全异步化 |
+| **阶段5：Reactive Security** | ✅ 完成 | JWT认证、CORS配置 |
+| **阶段6：前端Token修复** | ✅ 完成 | SSE请求携带Authorization |
+
+### 9.7 相关提交记录
+
+```
+[dev-2602 2105a60] 实现Monitor-AI的Reactive Spring Security JWT认证
+[dev-2602 1e89103] 修复前端AI请求未发送JWT token的问题
+[dev-2602 9145db4] 修复AI模型配置：使用流式ChatModel确保SSE正常工作
+[dev-2602 723c2f1] 修复侧边栏AI助手流式输出问题：响应式流、SSE格式、前端显示
+```
+
 ---
 
-*文档版本：V1.1（已完成版）*
+*文档版本：V1.2（Security实现完成）*
 *创建日期：2026年2月8日*
 *最后更新：2026年2月8日*
