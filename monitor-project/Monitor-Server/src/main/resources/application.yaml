@@ -77,3 +77,12 @@ langchain4j:
     chat-model:
       base-url: http://localhost:11434/v1
       model-name: qwen2.5:7b #gemma3:4b 不能调用工具，切换模型
+
+# Zookeeper Service Discovery Configuration
+zookeeper:
+  connection-string: localhost:2181
+  session-timeout-ms: 30000
+  connection-timeout-ms: 10000
+  base-path: /monitor
+  servers-path: /monitor/servers
+  server-id: ${spring.application.name}-${server.port}

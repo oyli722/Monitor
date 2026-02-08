@@ -6,9 +6,30 @@ spring:
 # 用于接收服务端下发的命令、配置更新等请求
 server:
   port: 8081
+
 config:
   path: C:\Users\hundred\Desktop\Java学习\Monitor\Monitor\monitor-project\Monitor-Agent\src\main\resources\agent-config.yaml
 
 # 服务端地址配置（可在此处指定默认服务端，用于动态URL构建）
 # server:
 #   url: "http://localhost:8081"
+
+# Zookeeper Service Discovery Configuration
+zookeeper:
+  discovery:
+    enabled: true
+    interval-ms: 60000  # 1分钟
+    retry-attempts: 3
+    retry-delay-ms: 5000
+    connection-string: localhost:2181
+    session-timeout-ms: 10000
+    connection-timeout-ms: 5000
+    base-path: /monitor
+    servers-path: /monitor/servers
+
+# Enable scheduling for service discovery
+org:
+  springframework:
+    scheduling:
+      annotation:
+        enabled: true

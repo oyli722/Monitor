@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # ZooKeeper - 服务注册与发现中心
+  zookeeper:
+    image: zookeeper:3.8.4
+    container_name: monitor-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      - ZOO_MY_ID=1
+      - ZOO_SERVERS=server.1=0.0.0.0:2888:3888;2181
+      - ZOO_TICK_TIME=2000
+      - ZOO_MAX_CLIENT_CNXNS=60
+    volumes:
+      - zookeeper-data:/data
+      - zookeeper-datalog:/datalog
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - monitor-network
+
+  # MySQL - 主数据库
+  mysql:
+    image: mysql:8.0
+    container_name: monitor-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=100000100ce.
+      - MYSQL_DATABASE=monitor
+      - MYSQL_USER=monitor
+      - MYSQL_PASSWORD=monitor123
+      - TZ=Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p100000100ce."]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - monitor-network
+
+  # Redis - 缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: monitor-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ""
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - monitor-network
+
+  # RabbitMQ - 消息队列
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: monitor-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+      - RABBITMQ_DEFAULT_VHOST=/
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - monitor-network
+
+volumes:
+  zookeeper-data:
+    driver: local
+  zookeeper-datalog:
+    driver: local
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+
+networks:
+  monitor-network:
+    driver: bridge

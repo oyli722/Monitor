@@ -1,6 +1,7 @@
 package com.hundred.monitor.agent.service;
 
 import com.hundred.monitor.agent.config.ConfigLoader;
+import com.hundred.monitor.agent.model.ServerEndpoint;
 import com.hundred.monitor.agent.model.entity.AgentConfig;
 import com.hundred.monitor.agent.model.entity.BasicInfo;
 import com.hundred.monitor.agent.model.entity.Metrics;
@@ -16,6 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Random;
 
 /**
  * 上报服务
@@ -27,12 +30,16 @@ public class ReportService {
     private static final Logger log = LoggerFactory.getLogger(ReportService.class);
 
     private final RestTemplate restTemplate;
+    private final Random random = new Random();
 
     @Autowired
     private CollectService collectService;
 
     @Autowired
     private ConfigLoader configLoader;
+
+    @Autowired(required = false)
+    private ServiceDiscoveryService serviceDiscoveryService;
 
     @Autowired
     public ReportService(RestTemplate restTemplate) {
@@ -151,15 +158,30 @@ public class ReportService {
 
     /**
      * 获取已注册的服务端URL
-     * 从agent-config.yaml中获取注册时使用过的服务端地址
-     * 如果没有记录，则使用配置列表的第一个
+     * 优先使用服务发现获取的服务器列表，然后使用简单的负载均衡策略选择一个服务器
+     * 如果服务发现不可用，则回退到静态配置
      */
     private String getRegisteredServerUrl(AgentConfig config) {
-        // TODO: 从配置中记录注册时使用的服务端
-        // 暂时返回第一个地址
+        // Try service discovery first
+        if (serviceDiscoveryService != null) {
+            List<ServerEndpoint> servers = serviceDiscoveryService.getAvailableServers();
+            if (!servers.isEmpty()) {
+                // Simple random load balancing
+                ServerEndpoint selected = servers.get(random.nextInt(servers.size()));
+                log.debug("Using server from service discovery: {}", selected.getUrl());
+                return selected.getUrl();
+            } else {
+                log.warn("Service discovery returned empty server list");
+            }
+        }
+
+        // Fallback to static configuration
+        log.debug("Using static configuration for server URL");
         if (config.getServer() != null && config.getServer().getEndpoints() != null
                 && config.getServer().getEndpoints().length > 0) {
-            return config.getServer().getEndpoints()[0];
+            // Use random selection from static config as well
+            String[] endpoints = config.getServer().getEndpoints();
+            return endpoints[random.nextInt(endpoints.length)];
         }
         return null;
     }

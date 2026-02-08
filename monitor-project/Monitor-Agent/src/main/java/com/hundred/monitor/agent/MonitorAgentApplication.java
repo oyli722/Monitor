@@ -1,8 +1,8 @@
 package com.hundred.monitor.agent;
 
-import com.hundred.monitor.agent.service.CollectService;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 @EnableScheduling
 @EnableFeignClients
+@EnableConfigurationProperties
 public class MonitorAgentApplication {
 
 	public static void main(String[] args) {

@@ -1,6 +1,7 @@
 package com.hundred.monitor.agent.service;
 
 import com.hundred.monitor.agent.config.ConfigLoader;
+import com.hundred.monitor.agent.model.ServerEndpoint;
 import com.hundred.monitor.agent.model.entity.AgentConfig;
 import com.hundred.monitor.agent.model.entity.BasicInfo;
 import com.hundred.monitor.agent.model.request.RegisterRequest;
@@ -14,6 +15,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.InetAddress;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * 注册服务
@@ -37,6 +40,9 @@ public class RegisterService {
 
     @Autowired
     private CollectService collectService;
+
+    @Autowired(required = false)
+    private ServiceDiscoveryService serviceDiscoveryService;
 
     @Autowired
     public RegisterService(RestTemplate restTemplate) {
@@ -66,18 +72,43 @@ public class RegisterService {
     public RegisterResponse register() {
         log.info("开始注册流程...");
 
+        // Try to use service discovery first
+        List<ServerEndpoint> discoveredServers = null;
+        if (serviceDiscoveryService != null) {
+            discoveredServers = serviceDiscoveryService.getAvailableServers();
+            if (discoveredServers.isEmpty()) {
+                log.warn("Service discovery returned empty server list");
+            }
+        }
+
+        // Fallback to static config if service discovery is not available or returns empty list
         AgentConfig config = configLoader.getConfig();
-        if (config.getServer() == null || config.getServer().getEndpoints() == null
-                || config.getServer().getEndpoints().length == 0) {
-            log.error("服务端地址未配置");
+        String[] staticEndpoints = null;
+        if (config.getServer() != null && config.getServer().getEndpoints() != null
+                && config.getServer().getEndpoints().length > 0) {
+            staticEndpoints = config.getServer().getEndpoints();
+        }
+
+        if ((discoveredServers == null || discoveredServers.isEmpty()) &&
+                (staticEndpoints == null || staticEndpoints.length == 0)) {
+            log.error("服务端地址未配置且服务发现失败");
             return null;
         }
 
-        String[] endpoints = config.getServer().getEndpoints();
-        log.info("服务端地址列表: {}", String.join(", ", endpoints));
+        // Determine which server list to use
+        String[] endpointsToTry;
+        if (discoveredServers != null && !discoveredServers.isEmpty()) {
+            log.info("使用Zookeeper服务发现，发现 {} 个服务器", discoveredServers.size());
+            endpointsToTry = discoveredServers.stream()
+                    .map(ServerEndpoint::getUrl)
+                    .toArray(String[]::new);
+        } else {
+            log.info("使用静态配置的服务端地址列表: {}", String.join(", ", staticEndpoints));
+            endpointsToTry = staticEndpoints;
+        }
 
         // 遍历服务端地址，选择最快的可用地址
-        String fastestServer = selectFastestServer(endpoints);
+        String fastestServer = selectFastestServer(endpointsToTry);
         if (fastestServer == null) {
             log.error("无法连接到任何服务端");
             return null;
@@ -159,6 +190,19 @@ public class RegisterService {
             log.warn("服务端 {} 连接异常: {}", endpoint, e.getMessage());
             return -1;
         }
+    }
+
+    /**
+     * Get available servers from service discovery
+     * Returns empty list if service discovery is disabled or unavailable
+     */
+    public List<String> getDiscoveredServerUrls() {
+        if (serviceDiscoveryService == null) {
+            return List.of();
+        }
+        return serviceDiscoveryService.getAvailableServers().stream()
+                .map(ServerEndpoint::getUrl)
+                .toList();
     }
 
     /**
