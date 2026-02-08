@@ -2,6 +2,9 @@ package com.hundred.monitor.ai.utils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hundred.monitor.ai.constant.ChatConstants;
+import com.hundred.monitor.ai.constant.ErrorConstants;
+import com.hundred.monitor.ai.exception.BusinessException;
 import com.hundred.monitor.commonlibrary.ai.model.ChatMessage;
 import com.hundred.monitor.commonlibrary.ai.model.ChatSessionInfo;
 import lombok.extern.slf4j.Slf4j;
@@ -15,9 +18,9 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * 全局聊天会话Redis工具类（侧边栏AI助手 - HTTP REST API）
@@ -28,7 +31,8 @@ import java.util.stream.Collectors;
 public class ChatSessionRedisReactiveUtils {
 
     @Autowired
-    private ReactiveRedisTemplate<String,String> reactiveRedisTemplate;
+    private ReactiveRedisTemplate<String, String> reactiveRedisTemplate;
+
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -36,12 +40,6 @@ public class ChatSessionRedisReactiveUtils {
     private static final String CHAT_MESSAGES_PREFIX = "assistant:chat:messages:";
     private static final String CHAT_INFO_PREFIX = "assistant:chat:info:";
     private static final String USER_SESSIONS_PREFIX = "assistant:user:sessions:";
-
-    // 消息数量阈值（超过此数量触发总结）
-    private static final int MESSAGE_THRESHOLD = 20;
-
-    // 过期时间（30天）
-    private static final long SESSION_TTL_DAYS = 30;
 
     // ==================== 会话操作 ====================
 
@@ -75,7 +73,7 @@ public class ChatSessionRedisReactiveUtils {
                                                         reactiveRedisTemplate.opsForValue().set(
                                                                 CHAT_INFO_PREFIX + sessionId,
                                                                 sessionInfoJson,
-                                                                Duration.ofDays(SESSION_TTL_DAYS)
+                                                                Duration.ofDays(ChatConstants.SESSION_TTL_DAYS)
                                                         ),
                                                         reactiveRedisTemplate.opsForZSet().add(
                                                                 USER_SESSIONS_PREFIX + userId,
@@ -90,20 +88,20 @@ public class ChatSessionRedisReactiveUtils {
                         info.getSessionId(), userId, title))
                 .doOnError(e -> log.error("创建会话失败: sessionId={}, userId={}, title={}",
                         sessionId, userId, title, e))
-                .onErrorResume(e -> Mono.error(new RuntimeException("创建会话失败", e)));
+                .onErrorResume(e -> Mono.error(new BusinessException(ErrorConstants.SESSION_CREATE_FAILED, e)));
     }
 
     /**
      * 获取会话信息
      *
      * @param sessionId 会话ID
-     * @return 会话信息，不存在返回null
+     * @return 会话信息，不存在返回空Mono
      */
     public Mono<ChatSessionInfo> getSessionInfo(String sessionId) {
         return reactiveRedisTemplate.opsForValue().get(CHAT_INFO_PREFIX + sessionId)
                 .flatMap(json -> {
                     if (json == null || json.isEmpty()) {
-                        return Mono.empty(); // 明确返回空，表示数据不存在
+                        return Mono.empty();
                     }
 
                     return Mono.fromCallable(() ->
@@ -111,17 +109,14 @@ public class ChatSessionRedisReactiveUtils {
                             )
                             .subscribeOn(Schedulers.boundedElastic())
                             .onErrorResume(JsonProcessingException.class, e -> {
-                                log.error("会话信息反序列化失败: sessionId={}, json={}", sessionId, json, e);
-                                return Mono.empty(); // 或 Mono.error(new DataCorruptedException(...))
+                                log.error("会话信息反序列化失败: sessionId={}", sessionId, e);
+                                return Mono.empty();
                             });
                 })
-                .doOnSuccess(info ->
-                        log.debug("获取会话信息成功: sessionId={}", sessionId)
-                )
-                .doOnError(e ->
-                        log.error("获取会话信息异常: sessionId={}", sessionId, e)
-                );
+                .doOnSuccess(info -> log.debug("获取会话信息成功: sessionId={}", sessionId))
+                .doOnError(e -> log.error("获取会话信息异常: sessionId={}", sessionId, e));
     }
+
     /**
      * 更新会话信息
      *
@@ -137,12 +132,12 @@ public class ChatSessionRedisReactiveUtils {
                         .set(
                                 CHAT_INFO_PREFIX + sessionInfo.getSessionId(),
                                 json,
-                                Duration.ofDays(SESSION_TTL_DAYS)
+                                Duration.ofDays(ChatConstants.SESSION_TTL_DAYS)
                         ))
                 .doOnError(JsonProcessingException.class, e ->
                         log.error("更新会话信息失败: sessionId={}", sessionInfo.getSessionId(), e))
                 .onErrorResume(JsonProcessingException.class, e ->
-                        Mono.error(new RuntimeException("更新会话信息失败", e)))
+                        Mono.error(new BusinessException(ErrorConstants.SESSION_GET_FAILED, e)))
                 .then();
     }
 
@@ -157,7 +152,7 @@ public class ChatSessionRedisReactiveUtils {
                 .then(reactiveRedisTemplate.delete(CHAT_INFO_PREFIX + sessionId))
                 .then(reactiveRedisTemplate.opsForZSet().remove(USER_SESSIONS_PREFIX + userId, sessionId))
                 .doOnError(e -> log.error("删除会话失败: sessionId={}, userId={}", sessionId, userId, e))
-                .onErrorResume(e -> Mono.error(new RuntimeException("删除会话失败: sessionId=" + sessionId, e)))
+                .onErrorResume(e -> Mono.error(new BusinessException(ErrorConstants.SESSION_DELETE_FAILED, e)))
                 .doOnSuccess(v -> log.info("删除会话成功: sessionId={}, userId={}", sessionId, userId))
                 .then();
     }
@@ -169,15 +164,14 @@ public class ChatSessionRedisReactiveUtils {
      * @return 会话ID列表
      */
     public Mono<List<String>> getUserSessionIds(String userId) {
-            return reactiveRedisTemplate.opsForZSet().reverseRange(
-                    USER_SESSIONS_PREFIX + userId,
-                    Range.unbounded()
-            ).collectList()
-                    .doOnSuccess(sessionIds -> log.debug("获取用户会话列表成功: userId={}", userId))
-                    .doOnError(e -> log.error("获取用户会话列表失败: userId={}", userId, e))
-                    .onErrorResume(e -> Mono.just(new ArrayList<>()));
+        return reactiveRedisTemplate.opsForZSet().reverseRange(
+                        USER_SESSIONS_PREFIX + userId,
+                        Range.unbounded()
+                ).collectList()
+                .doOnSuccess(sessionIds -> log.debug("获取用户会话列表成功: userId={}", userId))
+                .doOnError(e -> log.error("获取用户会话列表失败: userId={}", userId, e))
+                .onErrorResume(e -> Mono.just(Collections.emptyList()));
     }
-
 
     /**
      * 获取用户的所有会话详细信息列表
@@ -186,10 +180,10 @@ public class ChatSessionRedisReactiveUtils {
      * @return 会话信息列表
      */
     public Mono<List<ChatSessionInfo>> getUserSessions(String userId) {
-        return getUserSessionIds(userId)  // Mono<List<String>>
-                .flatMapMany(Flux::fromIterable)  // 转换为 Flux<String>
-                .flatMapSequential(this::getSessionInfo)  // 异步获取每个会话（保持顺序）
-                .collectList();  // 收集为 List
+        return getUserSessionIds(userId)
+                .flatMapMany(Flux::fromIterable)
+                .flatMapSequential(this::getSessionInfo)
+                .collectList();
     }
 
     /**
@@ -201,7 +195,6 @@ public class ChatSessionRedisReactiveUtils {
     public Mono<Boolean> refreshSessionTime(String userId, String sessionId) {
         double score = Instant.now().toEpochMilli();
         return reactiveRedisTemplate.opsForZSet().add(USER_SESSIONS_PREFIX + userId, sessionId, score);
-
     }
 
     // ==================== 消息操作 ====================
@@ -240,7 +233,7 @@ public class ChatSessionRedisReactiveUtils {
                     try {
                         return objectMapper.readValue(json, ChatMessage.class);
                     } catch (JsonProcessingException e) {
-                        log.error("消息反序列化失败: sessionId={}, json={}", sessionId, json, e);
+                        log.error("消息反序列化失败: sessionId={}", sessionId, e);
                         return null;
                     }
                 })
@@ -268,7 +261,7 @@ public class ChatSessionRedisReactiveUtils {
                     try {
                         return objectMapper.readValue(json, ChatMessage.class);
                     } catch (JsonProcessingException e) {
-                        log.error("最近消息反序列化失败: sessionId={}, json={}", sessionId, json, e);
+                        log.error("最近消息反序列化失败: sessionId={}", sessionId, e);
                         return null;
                     }
                 })
@@ -309,7 +302,7 @@ public class ChatSessionRedisReactiveUtils {
         return reactiveRedisTemplate.delete(CHAT_MESSAGES_PREFIX + sessionId)
                 .doOnSuccess(v -> log.info("清空消息成功: sessionId={}", sessionId))
                 .doOnError(e -> log.error("清空消息失败: sessionId={}", sessionId, e))
-                .onErrorResume(e -> Mono.error(new RuntimeException("清空消息失败: sessionId=" + sessionId, e)))
+                .onErrorResume(e -> Mono.error(new BusinessException(ErrorConstants.MESSAGE_CLEAR_FAILED, e)))
                 .then();
     }
 
@@ -321,7 +314,7 @@ public class ChatSessionRedisReactiveUtils {
      */
     public Mono<Boolean> needsSummary(String sessionId) {
         return reactiveRedisTemplate.opsForList().size(CHAT_MESSAGES_PREFIX + sessionId)
-                .map(count -> count != null && count >= MESSAGE_THRESHOLD)
+                .map(count -> count != null && count >= ChatConstants.MESSAGE_THRESHOLD)
                 .onErrorReturn(false);
     }
 
@@ -397,7 +390,7 @@ public class ChatSessionRedisReactiveUtils {
                 })
                 .doOnSuccess(v -> log.info("消息压缩成功: sessionId={}", sessionId))
                 .doOnError(e -> log.error("消息压缩失败: sessionId={}", sessionId, e))
-                .onErrorResume(e -> Mono.error(new RuntimeException("消息压缩失败: sessionId=" + sessionId, e)))
+                .onErrorResume(e -> Mono.error(new BusinessException("消息压缩失败: sessionId=" + sessionId, e)))
                 .then();
     }
 

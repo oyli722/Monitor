@@ -1,6 +1,10 @@
 package com.hundred.monitor.ai.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hundred.monitor.ai.constant.ChatConstants;
+import com.hundred.monitor.ai.constant.ErrorConstants;
+import com.hundred.monitor.ai.exception.AiServiceException;
+import com.hundred.monitor.ai.exception.ChatSessionNotFoundException;
 import com.hundred.monitor.ai.model.ChatAssistant;
 import com.hundred.monitor.ai.utils.ChatSessionRedisReactiveUtils;
 import com.hundred.monitor.commonlibrary.ai.model.ChatMessage;
@@ -15,7 +19,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -33,16 +36,11 @@ public class ChatService {
     @Resource
     private ChatSessionRedisReactiveUtils redisUtils;
 
-    // Getter for ChatController to access RedisUtils
-    public ChatSessionRedisReactiveUtils getRedisUtils() {
-        return redisUtils;
-    }
-
     @Resource(name = "defaultOpenAiChatAssistant")
     private ChatAssistant defaultChatAssistant;
 
     @Resource(name = "glmAiChatAssistant")
-    private ChatAssistant jlmAiChatAssistant;
+    private ChatAssistant glmAiChatAssistant;
 
     @Resource(name = "ollamaAiChatAssistant")
     private ChatAssistant ollamaAiChatAssistant;
@@ -52,11 +50,6 @@ public class ChatService {
 
     @Value("${ai.monitor-agent.default-model-name:ollama}")
     private String defaultModelName;
-
-    // 总结提示词
-    private static final String SUMMARY_PROMPT = """
-            请将以下对话内容总结为一段简洁的摘要，保留关键信息（用户意图、重要操作、结论）：
-            """;
 
     // ==================== 会话管理 ====================
 
@@ -69,10 +62,7 @@ public class ChatService {
      */
     public Mono<String> createSession(String userId, String firstMessage) {
         String sessionId = UUID.randomUUID().toString();
-        // 生成标题（取前20个字符）
-        String title = firstMessage.length() > 20
-                ? firstMessage.substring(0, 20) + "..."
-                : firstMessage;
+        String title = generateTitle(firstMessage);
 
         return redisUtils.createSession(userId, sessionId, title)
                 .thenReturn(sessionId)
@@ -88,15 +78,25 @@ public class ChatService {
      * @param sessionId     前端传入的会话ID
      */
     public Mono<Void> createSession(String userId, String firstMessage, String sessionId) {
-        // 生成标题（取前20个字符）
-        String title = firstMessage.length() > 20
-                ? firstMessage.substring(0, 20) + "..."
-                : firstMessage;
+        String title = generateTitle(firstMessage);
 
         return redisUtils.createSession(userId, sessionId, title)
                 .doOnSuccess(v -> log.info("创建会话: userId={}, sessionId={}, title={}", userId, sessionId, title))
                 .doOnError(e -> log.error("创建会话失败: userId={}, sessionId={}", userId, sessionId, e))
                 .then();
+    }
+
+    /**
+     * 生成会话标题
+     *
+     * @param message 首条消息
+     * @return 标题
+     */
+    private String generateTitle(String message) {
+        if (message.length() > ChatConstants.SESSION_TITLE_MAX_LENGTH) {
+            return message.substring(0, ChatConstants.SESSION_TITLE_MAX_LENGTH) + ChatConstants.SESSION_TITLE_SUFFIX;
+        }
+        return message;
     }
 
     /**
@@ -145,18 +145,16 @@ public class ChatService {
      * @return AI回复流
      */
     public Flux<String> sendMessage(String sessionId, String userId, String userMessage, String modelName) {
-        log.info("[DEBUG-1] sendMessage开始: sessionId={}, userId={}, message={}", sessionId, userId, userMessage);
-        // 检查会话是否存在
+        log.info("发送消息: sessionId={}, userId={}, messageLength={}", sessionId, userId, userMessage.length());
+
         return redisUtils.sessionExists(sessionId)
-                .doOnNext(exists -> log.info("[DEBUG-2] 会话存在检查: exists={}", exists))
                 .flatMap(exists -> {
-                    if (!exists) {
-                        return Mono.error(new IllegalArgumentException("会话不存在: " + sessionId));
+                    if (Boolean.FALSE.equals(exists)) {
+                        return Mono.error(new ChatSessionNotFoundException(sessionId));
                     }
                     return Mono.just(sessionId);
                 })
                 .flatMapMany(id -> {
-                    log.info("[DEBUG-3] 开始构建用户消息");
                     // 构建用户消息
                     ChatMessage userMsg = ChatMessage.builder()
                             .role("user")
@@ -168,15 +166,12 @@ public class ChatService {
                     return redisUtils.addMessage(sessionId, userMsg)
                             .then(redisUtils.refreshSessionTime(userId, sessionId))
                             .thenMany(Flux.defer(() -> {
-                                log.info("[DEBUG-4] 开始构建上下文: sessionId={}", sessionId);
                                 // 获取上下文消息
                                 return buildContext(sessionId)
-                                        .doOnNext(contextMessages -> log.info("[DEBUG-5] 上下文构建完成, 消息数={}", contextMessages.size()))
                                         .flatMapMany(contextMessages -> {
-                                            log.info("[DEBUG-6] 开始调用AI: modelName={}", modelName);
+                                            log.info("AI调用: sessionId={}, modelName={}, contextSize={}", sessionId, modelName, contextMessages.size());
                                             // 调用AI模型获取流式响应
-                                            return callAI(contextMessages, modelName)
-                                                    .doOnNext(chunk -> log.debug("[DEBUG-STREAM] 发送chunk: {}", chunk.substring(0, Math.min(20, chunk.length()))));
+                                            return callAI(contextMessages, modelName);
                                         });
                             }))
                             // 检查是否需要总结压缩（异步执行，不影响主流程）
@@ -187,7 +182,39 @@ public class ChatService {
                                         .subscribe();
                             });
                 })
-                .doOnError(e -> log.error("发送消息失败: sessionId={}, userId={}, userMessage={}", sessionId, userId, userMessage, e));
+                .doOnError(e -> log.error("发送消息失败: sessionId={}, userId={}", sessionId, userId, e));
+    }
+
+    /**
+     * 发送消息并自动保存AI回复（封装版本，供Controller使用）
+     *
+     * @param sessionId   会话ID
+     * @param userId      用户ID
+     * @param userMessage 用户消息
+     * @param modelName   模型名称
+     * @return AI回复流
+     */
+    public Flux<String> sendMessageStreamWithSave(String sessionId, String userId, String userMessage, String modelName) {
+        StringBuilder fullResponse = new StringBuilder();
+
+        return sendMessage(sessionId, userId, userMessage, modelName)
+                .doOnNext(fullResponse::append)
+                .doOnComplete(() -> {
+                    String content = fullResponse.toString();
+                    log.debug("保存AI回复: sessionId={}, length={}", sessionId, content.length());
+
+                    ChatMessage aiMsg = ChatMessage.builder()
+                            .role("assistant")
+                            .content(content)
+                            .timestamp(Instant.now().toEpochMilli())
+                            .build();
+
+                    redisUtils.addMessage(sessionId, aiMsg)
+                            .doOnSuccess(count -> log.debug("AI消息保存成功: sessionId={}, count={}", sessionId, count))
+                            .doOnError(e -> log.error("AI消息保存失败: sessionId={}", sessionId, e))
+                            .subscribe();
+                })
+                .doOnError(e -> log.error("发送消息流失败: sessionId={}", sessionId, e));
     }
 
     /**
@@ -232,13 +259,10 @@ public class ChatService {
      * @return 上下文消息列表
      */
     private Mono<List<dev.langchain4j.data.message.ChatMessage>> buildContext(String sessionId) {
-        log.info("[DEBUG-buildContext-1] buildContext开始: sessionId={}", sessionId);
         // 获取会话总结
         return redisUtils.getSummary(sessionId)
-                .doOnNext(summary -> log.info("[DEBUG-buildContext-2] 获取summary: {}", summary != null ? "存在" : "null"))
-                .switchIfEmpty(Mono.just(""))  // 处理empty情况
+                .switchIfEmpty(Mono.just(""))
                 .flatMap(summary -> {
-                    log.info("[DEBUG-buildContext-2.5] 进入flatMap, summary={}", summary != null && !summary.isEmpty() ? "有内容" : "空");
                     List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
 
                     // 添加系统提示词
@@ -252,11 +276,9 @@ public class ChatService {
                     return Mono.just(messages);
                 })
                 .flatMap(messages ->
-                    // 获取近期消息（最多10条）并添加到上下文
-                    redisUtils.getRecentMessagesAsList(sessionId, 10)
-                        .doOnNext(recentMessages -> log.info("[DEBUG-buildContext-3] 获取recentMessages: count={}", recentMessages.size()))
+                    // 获取近期消息并添加到上下文
+                    redisUtils.getRecentMessagesAsList(sessionId, ChatConstants.RECENT_MESSAGE_COUNT)
                         .map(recentMessages -> {
-                            log.info("[DEBUG-buildContext-4] 开始合并消息");
                             for (ChatMessage msg : recentMessages) {
                                 if ("user".equals(msg.getRole())) {
                                     messages.add(new UserMessage(msg.getContent()));
@@ -264,13 +286,11 @@ public class ChatService {
                                     messages.add(new AiMessage(msg.getContent()));
                                 }
                             }
-                            log.info("[DEBUG-buildContext-5] buildContext完成, 总消息数={}", messages.size());
                             return messages;
                         })
                 )
                 .doOnError(e -> log.error("构建上下文失败: sessionId={}", sessionId, e))
                 .onErrorResume(e -> {
-                    log.error("[DEBUG-buildContext-ERROR] 发生错误，返回fallback: {}", e.getMessage());
                     // 返回只有系统提示词的最小上下文
                     List<dev.langchain4j.data.message.ChatMessage> fallback = new ArrayList<>();
                     fallback.add(new SystemMessage(SystemPrompt.getSystemPrompt()));
@@ -287,27 +307,20 @@ public class ChatService {
      */
     private Flux<String> callAI(List<dev.langchain4j.data.message.ChatMessage> messages, String modelName) {
         try {
-            log.info("[DEBUG-callAI-1] callAI开始: modelName={}, messages={}", modelName, messages.size());
             // 将消息列表转换为JSON字符串
             String messagesJson = convertMessagesToJson(messages);
-            log.info("[DEBUG-callAI-2] JSON转换完成: length={}", messagesJson.length());
-            log.info("发送消息到AI: {}", messagesJson.length() > 200 ? messagesJson.substring(0, 200) + "..." : messagesJson);
+            log.debug("发送消息到AI: length={}, modelName={}", messagesJson.length(), modelName);
 
             // 调用 ChatAssistant.chat()
             ChatAssistant model = selectModel(modelName);
-            log.info("[DEBUG-callAI-3] 选中模型: {}", modelName);
             Flux<String> response = model.chat(messagesJson);
-            log.info("[DEBUG-callAI-4] model.chat()返回: {}", response != null ? "非null" : "null");
 
-            // 添加额外的日志来追踪订阅情况
             return response
-                    .doOnSubscribe(subscription -> log.info("[DEBUG-callAI-5] Flux被订阅"))
-                    .doOnNext(chunk -> log.info("[DEBUG-callAI-6] 收到AI回复片段: {}", chunk))
-                    .doOnComplete(() -> log.info("[DEBUG-callAI-7] AI回复完成"))
-                    .doOnError(e -> log.error("[DEBUG-callAI-ERROR] AI调用异常", e));
+                    .doOnComplete(() -> log.info("AI回复完成: modelName={}", modelName))
+                    .doOnError(e -> log.error("AI调用异常: modelName={}", modelName, e));
         } catch (Exception e) {
-            log.error("[DEBUG-callAI-EXCEPTION] AI调用失败: modelName={}", modelName, e);
-            return Flux.just("抱歉，AI服务暂时不可用，请稍后再试。");
+            log.error("AI调用失败: modelName={}", modelName, e);
+            throw new AiServiceException(ErrorConstants.AI_MODEL_ERROR);
         }
     }
 
@@ -367,14 +380,11 @@ public class ChatService {
             modelName = defaultModelName;
         }
 
-        log.info("[DEBUG-selectModel] 选择模型: requested={}, default={}", modelName, defaultModelName);
-        ChatAssistant selected = switch (modelName.toLowerCase()) {
-            case "glm" -> jlmAiChatAssistant;
+        return switch (modelName.toLowerCase()) {
+            case "glm" -> glmAiChatAssistant;
             case "ollama" -> ollamaAiChatAssistant;
             default -> defaultChatAssistant;
         };
-        log.info("[DEBUG-selectModel] 选中模型: {}", selected != null ? selected.getClass().getName() : "null");
-        return selected;
     }
 
     // ==================== 智能总结压缩 ====================
@@ -403,36 +413,28 @@ public class ChatService {
     }
 
     /**
-     * 生成对话总结
+     * 生成对话总结（完全异步实现）
      *
      * @param conversation 对话文本
      * @return 总结内容
      */
     private Mono<String> generateSummary(String conversation) {
-        return Mono.fromCallable(() -> {
-            // 构建总结消息列表（包含system消息）
-            List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
-            messages.add(new SystemMessage("你是一个对话总结助手，请将以下对话内容总结为一段简洁的摘要。"));
-            messages.add(new UserMessage(SUMMARY_PROMPT + "\n\n" + conversation));
+        // 构建总结消息列表
+        List<dev.langchain4j.data.message.ChatMessage> messages = new ArrayList<>();
+        messages.add(new SystemMessage("你是一个对话总结助手，请将以下对话内容总结为一段简洁的摘要。"));
+        messages.add(new UserMessage(ChatConstants.SUMMARY_PROMPT + "\n\n" + conversation));
 
-            // 转换为JSON字符串
-            String messagesJson = convertMessagesToJson(messages);
+        // 转换为JSON字符串
+        String messagesJson = convertMessagesToJson(messages);
 
-            // 调用AI生成总结，收集完整响应
-            ChatAssistant assistant = selectModel(null);
-            StringBuilder summaryBuilder = new StringBuilder();
+        // 调用AI生成总结（异步操作）
+        ChatAssistant assistant = selectModel(null);
 
-            // 注意：这里需要同步等待结果，因为是 Mono.fromCallable 内部
-            assistant.chat(messagesJson)
-                    .doOnNext(summaryBuilder::append)
-                    .blockLast(); // 阻塞等待完成
-
-            String summary = summaryBuilder.toString();
-            if (summary == null || summary.isEmpty()) {
-                return "对话总结生成失败";
-            }
-            return summary;
-        })
+        // 使用Flux.collectList()收集所有chunks，然后拼接成完整字符串
+        return assistant.chat(messagesJson)
+                .collectList()
+                .map(chunks -> String.join("", chunks))
+                .map(summary -> summary.isEmpty() ? "对话总结生成失败" : summary)
                 .doOnError(e -> log.error("生成总结失败", e));
     }
 

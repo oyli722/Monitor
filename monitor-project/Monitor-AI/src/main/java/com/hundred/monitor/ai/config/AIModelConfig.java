@@ -91,7 +91,6 @@ public class AIModelConfig {
                 .build();
         return AiServices.builder(ChatAssistant.class)
                 .streamingChatLanguageModel(defaultOpenAiChatModel)
-                // TODO 调用工具
                 .build();
     }
 
@@ -108,7 +107,6 @@ public class AIModelConfig {
                 .build();
         return AiServices.builder(ChatAssistant.class)
                 .streamingChatLanguageModel(build)
-                // TODO 调用工具
                 .build();
     }
 
@@ -124,7 +122,6 @@ public class AIModelConfig {
                 .build();
         return AiServices.builder(ChatAssistant.class)
                 .streamingChatLanguageModel(build)
-                // TODO 调用工具
                 .build();
     }
 }

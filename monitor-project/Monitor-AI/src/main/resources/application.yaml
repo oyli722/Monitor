@@ -30,7 +30,7 @@ spring:
 
 # JWT配置（与Server共享）
 jwt:
-  secret: monitor-server-jwt-secret-key-change-in-production
+  secret: monitor-server-jwt-secret-key-for-hmac-sha256-algorithm-at-least-32-bytes
   expiration: 86400000  # 24小时（毫秒）
 
 # AI模型配置
